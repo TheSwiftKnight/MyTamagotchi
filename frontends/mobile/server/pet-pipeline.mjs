@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 
 const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
-const SUPPORTED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+const JOB_TTL_MS = 30 * 60 * 1000;
+const SUPPORTED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
 const GMI_QUEUE_BASE = "https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey";
 const GMI_IMAGE_MODEL = "gpt-image-2-edit";
 const GMI_REMOVE_BG_MODEL = "bria-image-remove-background";
@@ -30,8 +31,27 @@ function safeName(value) {
   return String(value || "新伙伴").trim().slice(0, 24) || "新伙伴";
 }
 
+function publicJob(job) {
+  return {
+    id: job.id,
+    accessToken: job.accessToken,
+    name: job.name,
+    status: job.status,
+    stage: job.stage,
+    progress: job.progress,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    ...(job.error ? { error: job.error } : {}),
+    ...(job.asset ? { asset: { ...job.asset } } : {}),
+  };
+}
+
 function extensionForMime(mime) {
-  return mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
+  if (mime === "image/png") return "png";
+  if (mime === "image/webp") return "webp";
+  if (mime === "image/heic") return "heic";
+  if (mime === "image/heif") return "heif";
+  return "jpg";
 }
 
 async function writeJsonAtomic(filePath, value) {
@@ -72,8 +92,8 @@ async function fetchNetworkRetry(url, options, attempts = 3) {
 }
 
 export async function normalizeGmiUpload(input, mime) {
-  if (mime !== "image/webp") return { input, mime };
-  return { input: await sharp(input).png().toBuffer(), mime: "image/png" };
+  if (!["image/webp", "image/heic", "image/heif"].includes(mime)) return { input, mime };
+  return { input: await sharp(input).rotate().png().toBuffer(), mime: "image/png" };
 }
 
 async function uploadToGmi(rawInput, rawMime) {
@@ -387,50 +407,29 @@ export class PetPipeline {
   constructor({ dataDir, projectRoot, stylize = stylizeWithGmi, removeBackground = removeBackgroundWithGmi }) {
     this.dataDir = dataDir;
     this.assetDir = path.join(dataDir, "pet-assets");
-    this.indexPath = path.join(this.assetDir, "index.json");
     this.projectRoot = projectRoot;
     this.jobs = new Map();
-    this.assets = [];
+    this.expiryTimers = new Map();
     this.stylize = stylize;
     this.removeBackground = removeBackground;
   }
 
   async init() {
+    // Capture jobs are private, short-lived processing data. A restart clears
+    // interrupted work instead of restoring it into a shared user-visible list.
+    await rm(this.assetDir, { recursive: true, force: true });
     await mkdir(this.assetDir, { recursive: true });
-    try {
-      this.assets = JSON.parse(await readFile(this.indexPath, "utf8"));
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      await writeJsonAtomic(this.indexPath, []);
-    }
-    const entries = await readdir(this.assetDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory() || !entry.name.startsWith("pet-")) continue;
-      try {
-        const job = JSON.parse(await readFile(path.join(this.assetDir, entry.name, "job.json"), "utf8"));
-        if (job.status === "queued" || job.status === "processing") {
-          this.update(job, {
-            status: "failed",
-            stage: "failed",
-            error: "Generation was interrupted when the service restarted. Retry to continue from the saved source image.",
-          });
-          await this.persistJob(job);
-        }
-        this.jobs.set(job.id, job);
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
-    }
   }
 
   submit(source, { filename = "capture.jpg", mime = "image/jpeg", name } = {}) {
     if (!Buffer.isBuffer(source) || !source.length) throw new Error("Image body is empty");
     if (source.length > MAX_UPLOAD_BYTES) throw new Error("Image exceeds the 12MB upload limit");
-    if (!SUPPORTED_MIME.has(mime)) throw new Error("Only JPEG, PNG, and WebP images are supported");
+    if (!SUPPORTED_MIME.has(mime)) throw new Error("Only JPEG, PNG, WebP, and HEIC images are supported");
 
     const id = `pet-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const job = {
       id,
+      accessToken: randomUUID(),
       name: safeName(name),
       status: "queued",
       stage: "upload",
@@ -441,39 +440,19 @@ export class PetPipeline {
       updatedAt: new Date().toISOString(),
     };
     this.jobs.set(id, job);
+    this.scheduleExpiry(job);
     this.process(job, source, { filename, mime }).catch(() => {});
-    return { ...job };
+    return publicJob(job);
   }
 
-  getJob(id) {
+  getJob(id, accessToken) {
     const job = this.jobs.get(id);
-    return job ? { ...job } : null;
+    return job?.accessToken === accessToken ? publicJob(job) : null;
   }
 
-  listAssets() {
-    return this.assets.map(asset => ({ ...asset }));
-  }
-
-  async register(id) {
+  async retry(id, accessToken) {
     const job = this.jobs.get(id);
-    if (!job?.asset || job.status !== "ready") throw new Error("Agent is not ready to add to My Agents");
-    if (!this.assets.some(asset => asset.id === id)) {
-      const registered = {
-        ...job.asset,
-        personality: ["温柔", "好奇", "陪伴"],
-        temperament: "保留原始形象的辨识特征，性格温柔、好奇，喜欢陪伴与探索。",
-        registeredAt: new Date().toISOString(),
-      };
-      job.asset = registered;
-      this.assets.unshift(registered);
-      await writeJsonAtomic(this.indexPath, this.assets);
-    }
-    return { ...job.asset };
-  }
-
-  async retry(id) {
-    const job = this.jobs.get(id);
-    if (!job) throw new Error("Agent generation job not found");
+    if (!job || job.accessToken !== accessToken) throw new Error("Agent generation job not found");
     if (job.status === "queued" || job.status === "processing") throw new Error("Agent generation is still running");
     if (!job.sourceFile) throw new Error("Saved source image is missing");
     const source = await readFile(path.join(this.assetDir, id, job.sourceFile));
@@ -485,17 +464,38 @@ export class PetPipeline {
       asset: undefined,
     });
     await this.persistJob(job);
+    this.scheduleExpiry(job);
     this.process(job, source, { filename: job.filename, mime: job.mime }).catch(() => {});
-    return { ...job };
+    return publicJob(job);
   }
 
-  resolveFile(id, kind) {
+  resolveFile(id, kind, accessToken) {
     if (!["source", "clean", "final"].includes(kind)) return null;
-    const asset = this.assets.find(item => item.id === id);
     const job = this.jobs.get(id);
-    if (!asset && !job) return null;
-    const filename = kind === "source" ? job?.sourceFile || asset?.sourceFile : kind === "clean" ? "clean.png" : "final.png";
+    if (!job || job.accessToken !== accessToken) return null;
+    const filename = kind === "source" ? job.sourceFile : kind === "clean" ? "clean.png" : "final.png";
     return filename ? path.join(this.assetDir, id, filename) : null;
+  }
+
+  scheduleExpiry(job) {
+    const existing = this.expiryTimers.get(job.id);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.release(job.id, job.accessToken).catch(() => {});
+    }, JOB_TTL_MS);
+    timer.unref?.();
+    this.expiryTimers.set(job.id, timer);
+  }
+
+  async release(id, accessToken) {
+    const job = this.jobs.get(id);
+    if (!job || job.accessToken !== accessToken) return false;
+    const timer = this.expiryTimers.get(id);
+    if (timer) clearTimeout(timer);
+    this.expiryTimers.delete(id);
+    this.jobs.delete(id);
+    await rm(path.join(this.assetDir, id), { recursive: true, force: true });
+    return true;
   }
 
   update(job, patch) {
@@ -546,7 +546,7 @@ export class PetPipeline {
       }));
       const removeBackgroundProvider = `gmi:${process.env.GMI_REMOVE_BG_MODEL || GMI_REMOVE_BG_MODEL}`;
       await writeFile(path.join(itemDir, "final.png"), final);
-      this.update(job, { stage: "register", progress: 92, removeBackgroundProvider });
+      this.update(job, { stage: "localize", progress: 92, removeBackgroundProvider });
       await this.persistJob(job);
 
       const asset = {
@@ -556,9 +556,9 @@ export class PetPipeline {
         world: "Memory Town",
         color: "#E8634A",
         sourceFile,
-        sourceUrl: `/api/pets/${job.id}/files/source`,
-        cleanUrl: `/api/pets/${job.id}/files/clean`,
-        finalUrl: `/api/pets/${job.id}/files/final`,
+        sourceUrl: `/api/pets/${job.id}/files/source?accessToken=${encodeURIComponent(job.accessToken)}`,
+        cleanUrl: `/api/pets/${job.id}/files/clean?accessToken=${encodeURIComponent(job.accessToken)}`,
+        finalUrl: `/api/pets/${job.id}/files/final?accessToken=${encodeURIComponent(job.accessToken)}`,
         stylizeProvider,
         removeBackgroundProvider,
         promptVersion: SUBJECT_PROMPT_VERSION,

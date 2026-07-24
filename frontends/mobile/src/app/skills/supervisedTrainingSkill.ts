@@ -145,7 +145,7 @@ export function createSupervisedTrainingProvider(baseUrl = DEFAULT_TRAINING_API)
 
 export const SUPERVISED_TRAINING_CONTRACT = {
   source: "lianlema-portable",
-  mode: "local-first",
+  mode: "hybrid-realtime",
   stages: ["选择动作", "提取姿态关键点", "判断阶段与次数", "限频纠错", "生成训练总结"],
   supportedExercises: [
     "深蹲",
@@ -162,7 +162,7 @@ export const SUPERVISED_TRAINING_CONTRACT = {
   guarantees: [
     "动作分、次数与阶段由确定性规则或姿态模型产生",
     "同一错误连续出现后才播报，并遵守提示冷却时间",
-    "原始视频默认不进入 Agent 记忆",
+    "摄像头在手机端采集，压缩帧经 HTTPS 临时推理且不落盘",
   ],
 } as const;
 
@@ -171,14 +171,14 @@ export const SUPERVISED_TRAINING_SKILL: PlazaSkill = {
   name: "监督训练",
   englishName: "Supervised Training",
   category: "训练",
-  summary: "把本地姿态识别、动作计数、限频纠错与训练总结封装成可独立加载的监督训练能力。",
+  summary: "把实时姿态识别、动作计数、限频纠错与训练总结封装成可独立加载的监督训练能力。",
   color: "#B67C42",
   version: "1.0",
   source: "Dotti · 练了吗",
   capabilities: ["实时姿态监督", "动作次数与阶段追踪", "限频语音纠错", "训练总结"],
   featured: true,
   manual: {
-    overview: "监督训练 Skill 从“练了吗”的实时教练中抽取，只保留稳定的训练会话契约。Dotti 会根据用户选择的动作读取本地姿态关键点，持续判断阶段、次数与最需要修正的问题；摄像头界面、模型实现和文字教练都可以独立替换。",
+    overview: "监督训练 Skill 从“练了吗”的实时教练中抽取，只保留稳定的训练会话契约。手机浏览器负责摄像头采集，Dotti 通过线上姿态引擎持续判断阶段、次数与最需要修正的问题；摄像头界面、模型实现和文字教练都可以独立替换。",
     setup: [
       "选择训练动作，把设备放在能够完整看到身体与活动范围的位置。",
       "先以无负重或低强度完成一次校准，确认光线、站位与关键关节可见。",
@@ -200,6 +200,6 @@ export const SUPERVISED_TRAINING_SKILL: PlazaSkill = {
       "Skill 只提供动作观察与训练陪伴，不替代医生、康复师或真人教练诊断。",
       "负重、康复期或高风险动作应由专业人士确认后再进行。",
     ],
-    privacy: "默认只在本地使用画面提取姿态关键点，不保存原始视频；进入 Agent 记忆的只有动作摘要、次数和用户主动确认的训练记录。",
+    privacy: "手机会把压缩画面帧经 HTTPS 临时发送给姿态引擎，服务端只在内存中完成关键点推理、不保存原始视频；进入 Agent 记忆的只有动作摘要、次数和用户主动确认的训练记录。",
   },
 };

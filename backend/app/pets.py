@@ -33,6 +33,16 @@ SUBJECT_STYLE_PROMPT = (
     "Exactly one subject, no text, no watermark."
 )
 
+LINE_ART_STYLE_PROMPT = (
+    "Draw the subject as a cute hand-drawn LINE-ART character in ForkWorld style: "
+    "clean bold dark ink outlines, minimal flat shading, mostly uncolored paper-white body, "
+    "simple rounded shapes, front facing, friendly dot eyes and a tiny smile, "
+    "full uncropped body centered with generous padding. "
+    "Keep the subject's original category and identity recognizable. "
+    "The background MUST be a single flat opaque chroma green #00FF00 with nothing else on it. "
+    "Exactly one subject, no text, no watermark."
+)
+
 JOBS: dict[str, dict] = {}
 
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
@@ -99,6 +109,31 @@ def chroma_key_remove(png_bytes: bytes) -> bytes:
     out = io.BytesIO()
     img.save(out, format="PNG")
     return out.getvalue()
+
+
+async def generate_line_art(subject: str, source_data_url: str | None = None) -> str | None:
+    """用 capture 管线（风格化 → 色键去背）生成线条风角色图。
+
+    subject: 文字描述（如 "一只叫豆豆的狗"）；source_data_url 可选参考图。
+    成功返回可访问的 /api/pets/{gen_id}/files/final URL，失败返回 None。
+    """
+    prompt = LINE_ART_STYLE_PROMPT if source_data_url else (
+        f"{LINE_ART_STYLE_PROMPT}\nSubject to draw: {subject}."
+    )
+    raw = await llm.generate_image(prompt, source_data_url)
+    if not raw or not raw.startswith("data:"):
+        return None
+    header, b64 = raw.split(",", 1)
+    img_bytes = base64.b64decode(b64)
+    if not header.startswith("data:image/png"):
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        img_bytes = buf.getvalue()
+    final_bytes = await asyncio.to_thread(chroma_key_remove, img_bytes)
+    gen_id = f"lineart-{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}"
+    (_job_dir(gen_id) / "final.png").write_bytes(final_bytes)
+    return f"/api/pets/{gen_id}/files/final"
 
 
 async def process(job_id: str) -> None:
@@ -219,13 +254,10 @@ async def register(job_id: str, owner_id: int = 1) -> dict:
             owner_id=owner_id,
             name=job["name"],
             category=persona.get("category", "宠物"),
-            emoji="🐾",
+            image=asset["finalUrl"],
             trait=persona.get("trait", "刚被拍进世界的新伙伴"),
             mood=90,
-            location="home",
-            world="everyday",
-            sprite_url=asset["finalUrl"],
-            in_world=False,
+            location="vitality-gym-town",
         )
         session.add(agent)
         session.commit()

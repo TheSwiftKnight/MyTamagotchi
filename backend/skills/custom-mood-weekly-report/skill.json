@@ -1,0 +1,49 @@
+{
+  "def_id": "custom-mood-weekly-report",
+  "name": "心情周报",
+  "emoji": "📊",
+  "category": "生活",
+  "description": "记录每日心情并自动生成每周情绪趋势报告",
+  "kind": "prompt",
+  "source_repo": "forged-in-app",
+  "inputs": [
+    {
+      "key": "date",
+      "label": "日期",
+      "type": "date",
+      "required": true,
+      "placeholder": "选择记录的日期"
+    },
+    {
+      "key": "mood",
+      "label": "今日心情",
+      "type": "select",
+      "required": true,
+      "options": [
+        "开心",
+        "平静",
+        "焦虑",
+        "疲惫",
+        "感动",
+        "愤怒"
+      ],
+      "placeholder": "选择最贴切的心情"
+    },
+    {
+      "key": "note",
+      "label": "备注说明",
+      "type": "text",
+      "required": false,
+      "placeholder": "可选：简述导致此心情的事件或感受"
+    }
+  ],
+  "output": {
+    "type": "markdown"
+  },
+  "cta": "生成周报",
+  "capabilities": [
+    "自动统计并可视化每日心情分布",
+    "识别情绪波动模式并提供温和反馈",
+    "生成可分享的Markdown周报，支持长期情绪追踪"
+  ]
+}

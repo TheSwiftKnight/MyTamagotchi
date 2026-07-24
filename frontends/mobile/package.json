@@ -9,7 +9,10 @@
     "frontend": "vite",
     "backend": "node server/index.mjs",
     "dev:all": "node server/dev-all.mjs",
-    "test:backend": "node --test server/*.test.mjs"
+    "test:backend": "node --test server/*.test.mjs",
+    "compile:injective": "node scripts/deploy-agent-skill-market.mjs --compile-only",
+    "deploy:injective": "node scripts/deploy-agent-skill-market.mjs",
+    "verify:injective": "node scripts/verify-agent-skill-market.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -68,11 +71,13 @@
     "sonner": "2.0.3",
     "tailwind-merge": "3.2.0",
     "tw-animate-css": "1.3.8",
-    "vaul": "1.1.2"
+    "vaul": "1.1.2",
+    "viem": "~2.47.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
+    "solc": "^0.8.36",
     "tailwindcss": "4.1.12",
     "vite": "6.3.5"
   },

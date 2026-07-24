@@ -9,17 +9,24 @@ from datetime import datetime, timezone
 from sqlmodel import Session, select
 
 from . import llm
+from .db import commit_with_retry
 from .models import Agent, Memory, Skill, User, WorldEventRow, WorldMeta, now
 
 TICK_MINUTES = 30
 
 ERAS = [(80, "活档案纪元", 5), (40, "复调时代", 4), (20, "城邦晨光", 3), (8, "编织纪元", 2), (0, "采集纪元", 1)]
 
-WORLD_NAME = {"everyday": "Memory Town", "stardom": "Stardom", "future": "Future Colony"}
+WORLD_NAME = {
+    "vitality-gym-town": "Vitality Gym Town",
+    "learning-commons": "Learning Commons",
+    "maker-harbor": "Maker Harbor",
+    "plaza": "Public Plaza",
+}
 LOCATIONS = {
-    "everyday": ["记忆咖啡馆", "小广场", "邮筒旁", "花园长椅"],
-    "stardom": ["霓虹舞台", "后台休息室", "星光大道"],
-    "future": ["湖畔观测站", "温室穹顶", "数据水井"],
+    "vitality-gym-town": ["脉搏健身房", "小广场", "补水站", "花园长椅"],
+    "learning-commons": ["开放教室", "图书角", "同伴讲台"],
+    "maker-harbor": ["创想工坊", "材料回收站", "原型试验台"],
+    "plaza": ["同心广场", "喷泉旁", "技能锻造台"],
 }
 EVENT_TYPES = ["ritual", "discovery", "debate", "invention", "festival", "repair"]
 
@@ -60,9 +67,9 @@ def agent_world_view(a: Agent, session: Session) -> dict:
         "id": f"agent-{a.id}",
         "name": a.name,
         "role": profile.get("role") or a.category,
-        "world": WORLD_NAME.get(a.world, a.world),
+        "world": WORLD_NAME.get(a.location, a.location),
         "color": "#E8634A",
-        "location": random.Random(a.id).choice(LOCATIONS.get(a.world, ["小广场"])),
+        "location": random.Random(a.id).choice(LOCATIONS.get(a.location, ["小广场"])),
         "goal": profile.get("goal") or f"陪伴主人，做一只快乐的{a.category}",
         "mood": _mood_word(a.mood),
         "energy": a.mood,
@@ -140,20 +147,6 @@ def build_state(session: Session) -> dict:
 _tick_lock = asyncio.Lock()
 
 
-async def _commit_with_retry(session: Session, attempts: int = 6) -> None:
-    """SQLite 写提交带退避重试：即便偶发 BUSY 也不至于 500。"""
-    from sqlalchemy.exc import OperationalError
-    for i in range(attempts):
-        try:
-            session.commit()
-            return
-        except OperationalError:
-            session.rollback()
-            if i == attempts - 1:
-                raise
-            await asyncio.sleep(0.3)
-
-
 async def run_tick(session: Session, steps: int = 1) -> dict:
     async with _tick_lock:
         steps = max(1, min(5, steps))
@@ -179,11 +172,10 @@ async def _generate_event(session: Session, meta: WorldMeta | None = None) -> No
     if len(agents) < 2:
         _advance_clock(meta)
         session.add(meta)
-        await _commit_with_retry(session)
+        await commit_with_retry(session)
         return
-
-    world_key = random.choice([a.world for a in agents])
-    pool = [a for a in agents if a.world == world_key] or agents
+    world_key = random.choice([a.location for a in agents])
+    pool = [a for a in agents if a.location == world_key] or agents
     participants = random.sample(pool, min(len(pool), random.choice([2, 2, 3])))
     location = random.choice(LOCATIONS.get(world_key, ["小广场"]))
     etype = random.choice(EVENT_TYPES)
@@ -241,7 +233,7 @@ async def _generate_event(session: Session, meta: WorldMeta | None = None) -> No
     metrics[bump] = min(100, metrics[bump] + random.randint(1, 3))
     meta.metrics = json.dumps(metrics)
     session.add(meta)
-    await _commit_with_retry(session)
+    await commit_with_retry(session)
 
 
 def reset(session: Session) -> None:

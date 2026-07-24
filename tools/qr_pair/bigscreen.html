@@ -90,7 +90,9 @@
   .ov-chat { display: flex; flex-direction: column; gap: 10px; max-width: 680px; max-height: 24vh; overflow: hidden; }
   .ov-line { display: flex; gap: 10px; align-items: flex-start; text-align: left;
              animation: pop .3s both; }
-  .ov-line .e { font-size: 26px; }
+  .ov-line .e { width: 32px; height: 32px; flex: 0 0 32px; font-size: 26px; }
+  .ov-line .e img { width: 100%; height: 100%; object-fit: contain;
+                    border-radius: 50%; border: 2px solid #1C1911; background: #EFE9DD; }
   .ov-line .t { background: #fff; border: 2px solid #1C1911; border-radius: 4px 14px 14px 14px;
                 padding: 9px 15px; font-size: 17px; line-height: 1.5; }
   .ov-learned { font-size: 17px; background: #FBE8A6; border: 2px solid #1C1911;
@@ -110,7 +112,10 @@
     50% { transform: translate(-5px, 4px) }
   }
   .heroes { display: flex; align-items: center; gap: 26px; height: 120px; position: relative; }
-  .hero { font-size: 92px; line-height: 1; display: inline-block; opacity: 0; }
+  .hero { width: 108px; height: 108px; display: inline-block; opacity: 0; }
+  .hero img { width: 100%; height: 100%; object-fit: contain;
+              border-radius: 50%; border: 3px solid #1C1911; background: #EFE9DD; }
+  .hero .fb { font-size: 92px; line-height: 108px; }
   .hero.fly-l { animation: flyL .55s cubic-bezier(.45,0,.9,.6) both; }
   .hero.fly-r { animation: flyR .55s cubic-bezier(.45,0,.9,.6) both; }
   @keyframes flyL { from { opacity: 1; transform: translateX(-58vw) rotate(-40deg) scale(.7) }
@@ -231,7 +236,20 @@
 
   function agentLabel(id) {
     const a = agents[id];
-    return a ? a.emoji + " " + a.name : "Agent " + id;
+    return a ? a.name : "Agent " + id;
+  }
+
+  /* agent.image 是后端的相对 URL；大屏可能 file:// 直开，必须显式拼到 BACKEND 上 */
+  function avatarUrl(image) {
+    if (!image) return "";
+    return /^https?:\/\//.test(image) ? image : BACKEND + image;
+  }
+
+  /* 有形象图就渲染图，没有（回填还没跑完）就退回占位字形，绝不出现裂图 */
+  function avatarInto(el, image) {
+    const url = avatarUrl(image);
+    el.innerHTML = url ? '<img alt="">' : '<span class="fb">❔</span>';
+    if (url) el.querySelector("img").src = url;
   }
 
   function setStatus(text, warn) {
@@ -286,9 +304,9 @@
     })();
   }
 
-  function setHeroes(ea, eb, mode) {
+  function setHeroes(ia, ib, mode) {
     const ha = $("hero_a"), hb = $("hero_b");
-    ha.textContent = ea || "❔"; hb.textContent = eb || "❔";
+    avatarInto(ha, ia); avatarInto(hb, ib);
     ha.className = "hero"; hb.className = "hero";
     void ha.offsetWidth;                       // 重置动画
     if (mode === "approach") { ha.classList.add("approach-l"); hb.classList.add("approach-r"); }
@@ -302,7 +320,7 @@
     $("ov_wait").style.display = "flex";
     $("ov_body").style.display = "none";
     const a = agents[ida] || {}, b = agents[idb] || {};
-    setHeroes(a.emoji, b.emoji, "approach");
+    setHeroes(a.image, b.image, "approach");
     $("overlay").classList.add("show");
     setStatus("捕捉到两个世界！正在生成相遇故事…", true);
   }
@@ -315,7 +333,7 @@
   function showResult(r) {
     clearTimeout(hideTimer);
     const ag = r.agents || [];
-    const names = ag.map(a => a.emoji + " " + a.name).join("　×　");
+    const names = ag.map(a => a.name).join("　×　");
     const sc = (r.resonance || {}).score || 0;
 
     /* 内容先填好但隐藏，等撞击后逐层浮现 */
@@ -330,7 +348,7 @@
       const d = document.createElement("div"); d.className = "ov-line";
       d.style.animationDelay = (1.6 + i * 0.55) + "s";
       d.innerHTML = '<span class="e"></span><span class="t"></span>';
-      d.querySelector(".e").textContent = l.emoji || "";
+      avatarInto(d.querySelector(".e"), l.image);
       d.querySelector(".t").textContent = l.name + "：" + l.text;
       chat.appendChild(d);
     });
@@ -341,7 +359,7 @@
     /* 演出序列：飞入(0-550ms) → 撞击(550ms) → 内容浮现 */
     $("overlay").classList.add("show");
     $("beam").className = "beam";
-    setHeroes(ag[0] && ag[0].emoji, ag[1] && ag[1].emoji, "fly");
+    setHeroes(ag[0] && ag[0].image, ag[1] && ag[1].image, "fly");
 
     setTimeout(() => {                                   // 撞击瞬间
       $("ov_inner").classList.remove("shake"); void $("ov_inner").offsetWidth;

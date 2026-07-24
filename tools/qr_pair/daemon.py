@@ -84,7 +84,7 @@ def print_pair_result(result: dict):
     if res:
         print(f"  灵魂契合度 {res.get('score', '?')}/100 —— {res.get('reason', '')}")
     for line in result.get("lines", []):
-        print(f"  {line.get('emoji', '')} {line.get('name')}: {line.get('text')}")
+        print(f"  {line.get('name')}: {line.get('text')}")
     learned = result.get("learned")
     if learned:
         print(f"  ✨ {learned['learner']} 向 {learned['teacher']} 学会了「{learned['skill']}」")

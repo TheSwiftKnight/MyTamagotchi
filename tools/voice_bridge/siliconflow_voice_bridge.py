@@ -28,6 +28,8 @@ key 不能烧进固件(泄露 + 改 key 要重烧)，所以放一个 Mac 侧桥�
 """
 
 import io
+import socket
+import threading
 import os
 import re
 import sys
@@ -192,6 +194,33 @@ def pipeline(pcm_in: bytes):
 
 
 # ────────────────────────── HTTP 服务(协议与固件写死一致) ──────────────────────────
+
+# ───────────────── UDP 自动发现(板子换网络不用重烧固件) ─────────────────
+DISCOVERY_PORT = 8391
+
+def _discovery_server():
+    """板子广播 'FORKWORLD?' -> 回 'FORKWORLD!<本机IP>'。
+    IP 按请求来源选同网段网卡地址，多网卡/换网段都能选对。"""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("0.0.0.0", DISCOVERY_PORT))
+    while True:
+        try:
+            data, addr = srv.recvfrom(256)
+            if b"FORKWORLD?" not in data:
+                continue
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                probe.connect((addr[0], 9))
+                my_ip = probe.getsockname()[0]
+            finally:
+                probe.close()
+            srv.sendto(f"FORKWORLD!{my_ip}".encode(), addr)
+            print(f"[discovery] {addr[0]} 求桥接地址 -> 告知 {my_ip}")
+        except Exception as e:
+            print("[discovery] err:", type(e).__name__, str(e)[:80])
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -254,6 +283,7 @@ if __name__ == "__main__":
         if not API_KEY:
             print("[FATAL] 没读到 SiliconFlow key(LLM_API_KEY), 检查", ENV_PATH)
             sys.exit(1)
-        print(f"SiliconFlow bridge on 0.0.0.0:8390")
+        threading.Thread(target=_discovery_server, daemon=True).start()
+        print(f"SiliconFlow bridge on 0.0.0.0:8390  (discovery udp/8391)")
         print(f"  stt={STT_MODEL}  chat=后端 agent1(豆豆)  tts={TTS_MODEL}@16k pcm")
         ThreadingHTTPServer(("0.0.0.0", 8390), H).serve_forever()

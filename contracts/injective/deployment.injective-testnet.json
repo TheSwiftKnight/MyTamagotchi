@@ -1,0 +1,108 @@
+{
+  "schema": "agentland-injective-deployment/v1",
+  "network": "Injective EVM Testnet",
+  "chainId": 1439,
+  "rpcUrl": "https://k8s.testnet.json-rpc.injective.network/",
+  "explorerUrl": "https://testnet.blockscout.injective.network",
+  "deployer": "0x6D5ABec67Ba6387691DB42c48Dd1DA736e1dC934",
+  "identityRegistry": "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+  "contractAddress": "0xb9ccef65daa36db583c20556b4f9e91c6c43b0b4",
+  "contractScanUrl": "https://testnet.blockscout.injective.network/address/0xb9ccef65daa36db583c20556b4f9e91c6c43b0b4",
+  "deploymentTransactionHash": "0x2eefafc2a05125fdf91345ae37defbac5a6beffef02460ff4896451b703939d7",
+  "deploymentScanUrl": "https://testnet.blockscout.injective.network/tx/0x2eefafc2a05125fdf91345ae37defbac5a6beffef02460ff4896451b703939d7",
+  "deploymentBlockNumber": "134547360",
+  "deployedAt": "2026-07-24T12:13:55.516Z",
+  "settlementAsset": "native INJ",
+  "revenueSplit": {
+    "publisher": 90,
+    "collaborator": 5,
+    "platform": 5
+  },
+  "privacyBoundary": "Only public skill metadata, commitments, payments, licenses and call receipts are on-chain. Skill packages and private Agent memory remain local.",
+  "agents": [
+    {
+      "key": "dotti",
+      "name": "Dotti",
+      "agentId": "53",
+      "identityRef": "eip155:1439:0x8004A818BFB912233c491871b3d84c89A494BD9e:53",
+      "transactionHash": "0xa55b0fe363c80a25476800faefa44cba4212935e1626a9f42adae56e80695a8a",
+      "scanUrl": "https://testnet.blockscout.injective.network/token/0x8004A818BFB912233c491871b3d84c89A494BD9e/instance/53"
+    },
+    {
+      "key": "puck",
+      "name": "Puck",
+      "agentId": "54",
+      "identityRef": "eip155:1439:0x8004A818BFB912233c491871b3d84c89A494BD9e:54",
+      "transactionHash": "0x594f0e9d1b10ef3feef64b2b49b31adf525a0a76d4f7e4d2cc252f0d4b69588d",
+      "scanUrl": "https://testnet.blockscout.injective.network/token/0x8004A818BFB912233c491871b3d84c89A494BD9e/instance/54"
+    },
+    {
+      "key": "atlas",
+      "name": "Atlas",
+      "agentId": "55",
+      "identityRef": "eip155:1439:0x8004A818BFB912233c491871b3d84c89A494BD9e:55",
+      "transactionHash": "0x03aaff6b22cb97cff1c20660727e9785ac20d9c37bb714c4c795a48482ebebcd",
+      "scanUrl": "https://testnet.blockscout.injective.network/token/0x8004A818BFB912233c491871b3d84c89A494BD9e/instance/55"
+    },
+    {
+      "key": "ansel",
+      "name": "Ansel",
+      "agentId": "56",
+      "identityRef": "eip155:1439:0x8004A818BFB912233c491871b3d84c89A494BD9e:56",
+      "transactionHash": "0x81a038f12b4cf6814b2473964b7896f3888738f9be690bf218a658d4cb16ae79",
+      "scanUrl": "https://testnet.blockscout.injective.network/token/0x8004A818BFB912233c491871b3d84c89A494BD9e/instance/56"
+    }
+  ],
+  "listings": [
+    {
+      "listingId": "6",
+      "slug": "fitness-supervision",
+      "publisherAgentId": "53",
+      "manifestRoot": "0x0fb7c314b2301d87f9107cab410f582f6996dce67ca2b51e7416c089032efbbb",
+      "priceInj": "0.0003",
+      "pricingMode": "per_call",
+      "transactionHash": "0xce03959d2b15d05f69350f1a2ad89ec76cfaee0b7feadc0a76bbb9a7feb16ba4",
+      "scanUrl": "https://testnet.blockscout.injective.network/tx/0xce03959d2b15d05f69350f1a2ad89ec76cfaee0b7feadc0a76bbb9a7feb16ba4"
+    },
+    {
+      "listingId": "7",
+      "slug": "english-learning",
+      "publisherAgentId": "54",
+      "manifestRoot": "0xd17093a40c458ebc1485eef4610a41195fe972aef8e29e10ebdbd0e6ba2bac0d",
+      "priceInj": "0.0002",
+      "pricingMode": "per_call",
+      "transactionHash": "0xa0695aa28d86f972fd4d9ecf22db6a00f8f33d7deb47345d818a0bebad916752",
+      "scanUrl": "https://testnet.blockscout.injective.network/tx/0xa0695aa28d86f972fd4d9ecf22db6a00f8f33d7deb47345d818a0bebad916752"
+    },
+    {
+      "listingId": "8",
+      "slug": "route-cartography",
+      "publisherAgentId": "55",
+      "manifestRoot": "0x6e10518b9b1c21ed64e4ce7a87ed686dfb6da8932f2dc809741fe44c6de1c041",
+      "priceInj": "0.003",
+      "pricingMode": "license",
+      "transactionHash": "0x4b059036432ed01b955670223ebfd0ae7045909e3127523045f5ef668bd66857",
+      "scanUrl": "https://testnet.blockscout.injective.network/tx/0x4b059036432ed01b955670223ebfd0ae7045909e3127523045f5ef668bd66857"
+    },
+    {
+      "listingId": "9",
+      "slug": "shared-chronicle",
+      "publisherAgentId": "56",
+      "manifestRoot": "0xdaf77dc0e21f4ca18f61eb1865a42496e22f76f939e1104fa8819481af14e990",
+      "priceInj": "0.004",
+      "pricingMode": "license",
+      "transactionHash": "0x8a25a9fa052e43695e5ccd91c2cf9cfeb0f279b8a461c3b8b3170d987c53827f",
+      "scanUrl": "https://testnet.blockscout.injective.network/tx/0x8a25a9fa052e43695e5ccd91c2cf9cfeb0f279b8a461c3b8b3170d987c53827f"
+    },
+    {
+      "listingId": "10",
+      "slug": "question-loop",
+      "publisherAgentId": "54",
+      "manifestRoot": "0x6ca7fea7344b255e94a8a37d325e368c71cac4fdbdbcafeadb54f17559651e20",
+      "priceInj": "0.0025",
+      "pricingMode": "license",
+      "transactionHash": "0x5ff47e9a1762003d024f308287418aebc7d84ecadfbc4bfa65277cbfa1a11e2b",
+      "scanUrl": "https://testnet.blockscout.injective.network/tx/0x5ff47e9a1762003d024f308287418aebc7d84ecadfbc4bfa65277cbfa1a11e2b"
+    }
+  ]
+}

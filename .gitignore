@@ -5,7 +5,8 @@ __pycache__/
 .venv/
 .venv-*/
 .env
-*.db
+# tamagotchi.db 允许入库（团队对齐 agents 用，最终会上云）；
+# 但 SQLite 的 WAL/journal 临时文件是本机写缓冲，绝不能提交
 *.db-shm
 *.db-wal
 *.db-journal

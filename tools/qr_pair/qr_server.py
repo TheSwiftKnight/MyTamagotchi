@@ -42,8 +42,9 @@ PAGE_QR = """<!DOCTYPE html>
     gap: 22px; padding: 24px; overflow: hidden;
   }
   .who { text-align: center; }
-  .who .emoji { font-size: 44px; line-height: 1; display: block; margin-bottom: 8px;
-                animation: bob 2.4s ease-in-out infinite; }
+  .who .av { width: 84px; height: 84px; object-fit: contain; display: block;
+             margin: 0 auto 8px; border-radius: 50%; border: 2px solid #1C1911;
+             background: #EFE9DD; animation: bob 2.4s ease-in-out infinite; }
   .who h1 { font-size: 26px; letter-spacing: 2px; }
   .who p  { font-size: 13px; color: #8B8578; margin-top: 4px; }
   @keyframes bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }
@@ -93,7 +94,8 @@ PAGE_QR = """<!DOCTYPE html>
   .chat { display: flex; flex-direction: column; gap: 8px; max-width: 330px; width: 100%;
           max-height: 26vh; overflow-y: auto; }
   .line { display: flex; gap: 8px; align-items: flex-start; text-align: left; }
-  .line .e { font-size: 20px; }
+  .line .e { width: 26px; height: 26px; flex: 0 0 26px; object-fit: contain;
+             border-radius: 50%; border: 1.5px solid #1C1911; background: #EFE9DD; }
   .line .t { background: #fff; border: 1.5px solid #1C1911; border-radius: 4px 12px 12px 12px;
              padding: 7px 11px; font-size: 13.5px; line-height: 1.5; }
   .learned { font-size: 13px; background: #FBE8A6; border: 1.5px solid #1C1911;
@@ -109,7 +111,7 @@ PAGE_QR = """<!DOCTYPE html>
 </head>
 <body>
   <div class="who">
-    <span class="emoji">__EMOJI__</span>
+    <img class="av" src="/avatar/__AGENT_ID__" alt="__NAME__">
     <h1>__NAME__</h1>
     <p>__OWNER__ 的搭子 · Agent #__AGENT_ID__</p>
   </div>
@@ -151,7 +153,7 @@ PAGE_QR = """<!DOCTYPE html>
   }
 
   function showResult(r) {
-    const names = (r.agents || []).map(a => a.emoji + " " + a.name).join("  ×  ");
+    const names = (r.agents || []).map(a => a.name).join("  ×  ");
     document.getElementById("r_pair").textContent = names;
     document.getElementById("r_reason").textContent = (r.resonance || {}).reason || "";
     document.getElementById("r_topic").textContent = (r.resonance || {}).topic || "";
@@ -159,8 +161,9 @@ PAGE_QR = """<!DOCTYPE html>
     chat.innerHTML = "";
     (r.lines || []).forEach(l => {
       const d = document.createElement("div"); d.className = "line";
-      d.innerHTML = '<span class="e"></span><span class="t"></span>';
-      d.querySelector(".e").textContent = l.emoji || "";
+      // 头像走本服务的 /avatar 代理（同源），不直接拼后端 image URL
+      d.innerHTML = '<img class="e" alt=""><span class="t"></span>';
+      d.querySelector(".e").src = "/avatar/" + l.agent_id;
       d.querySelector(".t").textContent = l.name + "：" + l.text;
       chat.appendChild(d);
     });
@@ -225,7 +228,8 @@ PAGE_INDEX = """<!DOCTYPE html>
   a.card:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0 rgba(28,25,17,.9); }
   a.card:nth-child(odd) { transform: rotate(-1deg); }
   a.card:nth-child(even) { transform: rotate(1deg); }
-  .emoji { font-size: 40px; display: block; margin-bottom: 8px; }
+  .av { width: 64px; height: 64px; object-fit: contain; display: block; margin: 0 auto 8px;
+        border-radius: 50%; border: 2px solid #1C1911; background: #EFE9DD; }
   .name { font-size: 17px; font-weight: 600; }
   .owner { font-size: 12px; color: #8B8578; margin-top: 4px; }
   .empty { font-size: 14px; color: #8B8578; margin-top: 30px; text-align: center; line-height: 1.8; }
@@ -240,10 +244,18 @@ PAGE_INDEX = """<!DOCTYPE html>
 </html>"""
 
 CARD = """<a class="card" href="/qr/__ID__">
-  <span class="emoji">__EMOJI__</span>
+  <img class="av" src="/avatar/__ID__" alt="__NAME__">
   <div class="name">__NAME__</div>
   <div class="owner">__OWNER__ 的搭子</div>
 </a>"""
+
+
+FALLBACK_AVATAR = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+    '<circle cx="50" cy="50" r="47" fill="#EFE9DD" stroke="#1C1911" stroke-width="3"/>'
+    '<text x="50" y="52" font-size="44" text-anchor="middle" '
+    'dominant-baseline="central">🐾</text></svg>'
+).encode()
 
 
 def fetch_agents(backend: str) -> dict[int, dict]:
@@ -297,10 +309,29 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         m_png = re.fullmatch(r"/qr/(\d+)\.png", self.path)
         m_page = re.fullmatch(r"/qr/(\d+)", self.path)
+        m_avatar = re.fullmatch(r"/avatar/(\d+)", self.path)
 
         if m_png:
             payload = f"{QR_PREFIX}{m_png.group(1)}"
             self._send(200, make_qr_png(payload), "image/png")
+            return
+
+        if m_avatar:
+            # 头像代理：agent.image 是后端的相对 URL，手机直连 127.0.0.1 不通，
+            # 由本服务转一手做成同源；取不到就给纸墨风占位图，绝不出现裂图。
+            agent = fetch_agents(self.backend).get(int(m_avatar.group(1)), {})
+            url = agent.get("image") or ""
+            if url.startswith("/"):
+                url = self.backend.rstrip("/") + url
+            if url:
+                try:
+                    with urlopen(url, timeout=5) as resp:
+                        self._send(200, resp.read(),
+                                   resp.headers.get("Content-Type", "image/png"))
+                        return
+                except Exception:
+                    pass
+            self._send(200, FALLBACK_AVATAR, "image/svg+xml")
             return
 
         if m_page:
@@ -310,7 +341,6 @@ class Handler(BaseHTTPRequestHandler):
                     .replace("__AGENT_ID__", aid)
                     .replace("__PAYLOAD__", f"{QR_PREFIX}{aid}")
                     .replace("__NAME__", agent.get("name", f"Agent {aid}"))
-                    .replace("__EMOJI__", agent.get("emoji", "🐾"))
                     .replace("__OWNER__", agent.get("owner_name", "?")))
             self._send(200, html.encode(), "text/html; charset=utf-8")
             return
@@ -319,7 +349,6 @@ class Handler(BaseHTTPRequestHandler):
             agents = fetch_agents(self.backend)
             cards = "".join(
                 CARD.replace("__ID__", str(aid))
-                    .replace("__EMOJI__", a.get("emoji", "🐾"))
                     .replace("__NAME__", a.get("name", "?"))
                     .replace("__OWNER__", a.get("owner_name", "?"))
                 for aid, a in sorted(agents.items())

@@ -4,9 +4,13 @@
     {
       "name": "mobile",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "frontend"
+      ],
       "cwd": "frontends/mobile",
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }

@@ -1,0 +1,23 @@
+[Unit]
+Description=Agent Land supervised training engine
+After=network.target
+
+[Service]
+Type=simple
+User=agentland-training
+Group=agentland-training
+WorkingDirectory=/opt/agentland-training/current
+Environment=POSE_MODEL_PATH=/opt/agentland-training/models/rtmo-s_8xb32-600e_body7-640x640-dac2bf74_20231211.onnx
+Environment=OMP_NUM_THREADS=2
+Environment=OPENBLAS_NUM_THREADS=2
+ExecStart=/opt/agentland-training/venv/bin/gunicorn --bind 127.0.0.1:4010 --workers 1 --threads 1 --timeout 30 --access-logfile - app:app
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/agentland-training
+
+[Install]
+WantedBy=multi-user.target

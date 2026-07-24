@@ -94,7 +94,7 @@ export type WorldState = {
   events: WorldEvent[];
 };
 
-const API_BASE = (import.meta.env.VITE_WORLD_API_URL || "/api").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_WORLD_API_URL || "http://127.0.0.1:8000/api").replace(/\/$/, "");
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
