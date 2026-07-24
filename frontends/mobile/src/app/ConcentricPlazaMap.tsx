@@ -90,7 +90,7 @@ const STAGE_HEIGHT = 1882;
 const MIN_SCALE = 0.22;
 const MAX_SCALE = 2.2;
 const DEFAULT_PLAZA_SCALE = 0.31;
-const PLAZA_CENTER = { x: STAGE_WIDTH / 2, y: STAGE_HEIGHT / 2 };
+const PLAZA_CENTER = { x: 1716, y: 901 };
 const PLAZA_FOCUS = {
   x: PLAZA_CENTER.x - 470,
   y: PLAZA_CENTER.y - 390,
@@ -98,29 +98,70 @@ const PLAZA_FOCUS = {
   height: 780,
 };
 
-const PLAZA_RINGS = [
-  { id: 1, name: "一环 · 中央住区", rx: 790, ry: 520, capacity: 36, offset: -85 },
-  { id: 2, name: "二环 · 花园住区", rx: 1090, ry: 710, capacity: 44, offset: -85.9 },
-  { id: 3, name: "三环 · 田园住区", rx: 1380, ry: 860, capacity: 52, offset: -86.54 },
-] as const;
-
-const HOUSE_SLOTS: HouseSlot[] = PLAZA_RINGS.flatMap((ring, ringIndex) => {
-  const firstHouseNumber = PLAZA_RINGS
-    .slice(0, ringIndex)
-    .reduce((total, previousRing) => total + previousRing.capacity, 0) + 1;
-  return Array.from({ length: ring.capacity }, (_, slot) => {
-    const angle = (ring.offset + slot * 360 / ring.capacity) * Math.PI / 180;
-    return {
-      id: `H${String(firstHouseNumber + slot).padStart(2, "0")}`,
-      ringId: ring.id,
-      ringName: ring.name,
-      x: Math.round(PLAZA_CENTER.x + Math.cos(angle) * ring.rx),
-      y: Math.round(PLAZA_CENTER.y + Math.sin(angle) * ring.ry),
-      w: ring.id === 1 ? 118 : 110,
-      h: ring.id === 1 ? 94 : 88,
-    };
-  });
-});
+/* 房屋热区坐标：由 unified-concentric-town 素材反解——屋顶色分割(S>90 且 R-G>35，
+   可排除同色系的广场铺装与农田) → 腐蚀分离 → 邻近去重。只有真有房子的位置才有热区。
+   换素材必须重跑，否则热区会落到空地上。 */
+const HOUSE_SLOTS: HouseSlot[] = [
+  { id: "H01", ringId: 1, ringName: "一环 · 中央住区", x: 2434, y: 945, w: 118, h: 94 },
+  { id: "H02", ringId: 1, ringName: "一环 · 中央住区", x: 2382, y: 1076, w: 118, h: 94 },
+  { id: "H03", ringId: 1, ringName: "一环 · 中央住区", x: 2295, y: 1211, w: 118, h: 94 },
+  { id: "H04", ringId: 1, ringName: "一环 · 中央住区", x: 925, y: 1072, w: 118, h: 94 },
+  { id: "H05", ringId: 2, ringName: "二环 · 花园住区", x: 912, y: 736, w: 118, h: 94 },
+  { id: "H06", ringId: 2, ringName: "二环 · 花园住区", x: 967, y: 632, w: 118, h: 94 },
+  { id: "H07", ringId: 2, ringName: "二环 · 花园住区", x: 1060, y: 523, w: 118, h: 94 },
+  { id: "H08", ringId: 2, ringName: "二环 · 花园住区", x: 2284, y: 531, w: 118, h: 94 },
+  { id: "H09", ringId: 2, ringName: "二环 · 花园住区", x: 2364, y: 632, w: 118, h: 94 },
+  { id: "H10", ringId: 2, ringName: "二环 · 花园住区", x: 2412, y: 751, w: 118, h: 94 },
+  { id: "H11", ringId: 2, ringName: "二环 · 花园住区", x: 2142, y: 1333, w: 118, h: 94 },
+  { id: "H12", ringId: 2, ringName: "二环 · 花园住区", x: 2005, y: 1403, w: 118, h: 94 },
+  { id: "H13", ringId: 2, ringName: "二环 · 花园住区", x: 1894, y: 1442, w: 118, h: 94 },
+  { id: "H14", ringId: 2, ringName: "二环 · 花园住区", x: 1417, y: 1440, w: 118, h: 94 },
+  { id: "H15", ringId: 2, ringName: "二环 · 花园住区", x: 1189, y: 1357, w: 118, h: 94 },
+  { id: "H16", ringId: 2, ringName: "二环 · 花园住区", x: 1019, y: 1207, w: 118, h: 94 },
+  { id: "H17", ringId: 2, ringName: "二环 · 花园住区", x: 890, y: 945, w: 118, h: 94 },
+  { id: "H18", ringId: 3, ringName: "三环 · 林荫住区", x: 710, y: 625, w: 104, h: 84 },
+  { id: "H19", ringId: 3, ringName: "三环 · 林荫住区", x: 849, y: 453, w: 104, h: 84 },
+  { id: "H20", ringId: 3, ringName: "三环 · 林荫住区", x: 1241, y: 388, w: 104, h: 84 },
+  { id: "H21", ringId: 3, ringName: "三环 · 林荫住区", x: 1443, y: 318, w: 104, h: 84 },
+  { id: "H22", ringId: 3, ringName: "三环 · 林荫住区", x: 1896, y: 318, w: 104, h: 84 },
+  { id: "H23", ringId: 3, ringName: "三环 · 林荫住区", x: 2068, y: 375, w: 104, h: 84 },
+  { id: "H24", ringId: 3, ringName: "三环 · 林荫住区", x: 2475, y: 449, w: 104, h: 84 },
+  { id: "H25", ringId: 3, ringName: "三环 · 林荫住区", x: 2617, y: 630, w: 104, h: 84 },
+  { id: "H26", ringId: 3, ringName: "三环 · 林荫住区", x: 2667, y: 1039, w: 104, h: 84 },
+  { id: "H27", ringId: 3, ringName: "三环 · 林荫住区", x: 2541, y: 1266, w: 104, h: 84 },
+  { id: "H28", ringId: 3, ringName: "三环 · 林荫住区", x: 2179, y: 1547, w: 104, h: 84 },
+  { id: "H29", ringId: 3, ringName: "三环 · 林荫住区", x: 2025, y: 1601, w: 104, h: 84 },
+  { id: "H30", ringId: 3, ringName: "三环 · 林荫住区", x: 1278, y: 1588, w: 104, h: 84 },
+  { id: "H31", ringId: 3, ringName: "三环 · 林荫住区", x: 1158, y: 1549, w: 104, h: 84 },
+  { id: "H32", ringId: 3, ringName: "三环 · 林荫住区", x: 771, y: 1283, w: 104, h: 84 },
+  { id: "H33", ringId: 3, ringName: "三环 · 林荫住区", x: 640, y: 1032, w: 104, h: 84 },
+  { id: "H34", ringId: 4, ringName: "四环 · 田园住区", x: 427, y: 640, w: 104, h: 84 },
+  { id: "H35", ringId: 4, ringName: "四环 · 田园住区", x: 533, y: 473, w: 104, h: 84 },
+  { id: "H36", ringId: 4, ringName: "四环 · 田园住区", x: 638, y: 349, w: 104, h: 84 },
+  { id: "H37", ringId: 4, ringName: "四环 · 田园住区", x: 964, y: 129, w: 104, h: 84 },
+  { id: "H38", ringId: 4, ringName: "四环 · 田园住区", x: 1184, y: 231, w: 104, h: 84 },
+  { id: "H39", ringId: 4, ringName: "四环 · 田园住区", x: 1147, y: 41, w: 104, h: 84 },
+  { id: "H40", ringId: 4, ringName: "四环 · 田园住区", x: 1352, y: 176, w: 104, h: 84 },
+  { id: "H41", ringId: 4, ringName: "四环 · 田园住区", x: 1979, y: 179, w: 104, h: 84 },
+  { id: "H42", ringId: 4, ringName: "四环 · 田园住区", x: 2186, y: 52, w: 104, h: 84 },
+  { id: "H43", ringId: 4, ringName: "四环 · 田园住区", x: 2171, y: 240, w: 104, h: 84 },
+  { id: "H44", ringId: 4, ringName: "四环 · 田园住区", x: 2356, y: 129, w: 104, h: 84 },
+  { id: "H45", ringId: 4, ringName: "四环 · 田园住区", x: 2704, y: 362, w: 104, h: 84 },
+  { id: "H46", ringId: 4, ringName: "四环 · 田园住区", x: 2795, y: 471, w: 104, h: 84 },
+  { id: "H47", ringId: 4, ringName: "四环 · 田园住区", x: 2889, y: 643, w: 104, h: 84 },
+  { id: "H48", ringId: 4, ringName: "四环 · 田园住区", x: 2941, y: 1065, w: 104, h: 84 },
+  { id: "H49", ringId: 4, ringName: "四环 · 田园住区", x: 2859, y: 1183, w: 104, h: 84 },
+  { id: "H50", ringId: 4, ringName: "四环 · 田园住区", x: 2743, y: 1412, w: 104, h: 84 },
+  { id: "H51", ringId: 4, ringName: "四环 · 田园住区", x: 2404, y: 1690, w: 104, h: 84 },
+  { id: "H52", ringId: 4, ringName: "四环 · 田园住区", x: 1957, y: 1849, w: 104, h: 84 },
+  { id: "H53", ringId: 4, ringName: "四环 · 田园住区", x: 1881, y: 1649, w: 104, h: 84 },
+  { id: "H54", ringId: 4, ringName: "四环 · 田园住区", x: 1437, y: 1649, w: 104, h: 84 },
+  { id: "H55", ringId: 4, ringName: "四环 · 田园住区", x: 1343, y: 1847, w: 104, h: 84 },
+  { id: "H56", ringId: 4, ringName: "四环 · 田园住区", x: 925, y: 1688, w: 104, h: 84 },
+  { id: "H57", ringId: 4, ringName: "四环 · 田园住区", x: 562, y: 1403, w: 104, h: 84 },
+  { id: "H58", ringId: 4, ringName: "四环 · 田园住区", x: 418, y: 1170, w: 104, h: 84 },
+  { id: "H59", ringId: 4, ringName: "四环 · 田园住区", x: 355, y: 1041, w: 104, h: 84 },
+];
 
 const OCCUPIED_HOUSE_INDEXES = [1, 5, 9, 13, 17, 21];
 const MEMBER_POSITIONS = [
