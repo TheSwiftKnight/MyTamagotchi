@@ -11,14 +11,18 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
-FALLBACK_MODELS = [
-    "nvidia/nemotron-3-nano-30b-a3b:free",
-    "google/gemma-4-26b-a4b-it:free",
-    "openai/gpt-oss-20b:free",
-]
-BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+# 供应商无关：默认 OpenRouter；用 LLM_* 环境变量可切到 SiliconFlow / OpenAI 等任意 OpenAI 兼容接口
+API_KEY = os.getenv("LLM_API_KEY") or os.getenv("OPENROUTER_API_KEY", "")
+MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
+BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
+_fb = os.getenv("LLM_FALLBACK_MODELS")
+FALLBACK_MODELS = (
+    [m.strip() for m in _fb.split(",") if m.strip()] if _fb is not None else [
+        "nvidia/nemotron-3-nano-30b-a3b:free",
+        "google/gemma-4-26b-a4b-it:free",
+        "openai/gpt-oss-20b:free",
+    ]
+)
 
 FALLBACK_LINES = [
     "（伸了个懒腰）你回来啦！",
@@ -80,7 +84,6 @@ async def chat(messages: list[dict], max_tokens: int = 400, temperature: float =
                         "messages": messages,
                         "max_tokens": max_tokens,
                         "temperature": temperature,
-                        "reasoning": {"enabled": False},
                     },
                 )
                 resp.raise_for_status()
@@ -94,7 +97,7 @@ async def chat(messages: list[dict], max_tokens: int = 400, temperature: float =
 
 
 # 免费模型长 JSON 输出偶尔崩坏，最后兜底用便宜的付费文字模型保证可解析
-JSON_RESCUE_MODEL = os.getenv("OPENROUTER_JSON_RESCUE_MODEL", "google/gemini-3.1-flash-lite")
+JSON_RESCUE_MODEL = os.getenv("LLM_JSON_RESCUE_MODEL") or os.getenv("OPENROUTER_JSON_RESCUE_MODEL", MODEL)
 
 
 def _parse_json(raw: str) -> dict | list | None:
