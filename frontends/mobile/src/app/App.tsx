@@ -6053,6 +6053,17 @@ function AgentGrowthScreen({ sceneControl }: { sceneControl: React.ReactNode }) 
                     const manifest = parseSkillManifest(openSkill);
                     const checks = skillDefinitionChecks(openSkill);
                     const manualLoaded = isLoaded(selected.id, openSkill.id);
+                    // 章节号按真正渲染出来的段落连号：manifest 没有 capabilities/inputs 时
+                    // 不会出现 00 · 02 · 03 这种看着像 bug 的跳号
+                    const hasCapabilities = Boolean(manifest.capabilities?.length);
+                    const hasInputs = Boolean(manifest.inputs?.length);
+                    let sectionCursor = 0;
+                    const nextSectionNo = () => String(sectionCursor++).padStart(2, "0");
+                    const overviewNo = nextSectionNo();
+                    const capabilitiesNo = hasCapabilities ? nextSectionNo() : "";
+                    const inputsNo = hasInputs ? nextSectionNo() : "";
+                    const definitionNo = nextSectionNo();
+                    const maintainNo = nextSectionNo();
                     return (
                       <div className="rounded-[22px] overflow-hidden"
                         style={{ background: "#FAF6EF", border: `2px solid ${manualColor}`, boxShadow: `0 8px 24px ${manualColor}16` }}>
@@ -6097,7 +6108,7 @@ function AgentGrowthScreen({ sceneControl }: { sceneControl: React.ReactNode }) 
                         <div className="p-4 flex flex-col gap-4">
                           <section>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="rounded-full px-2 py-1" style={{ color: manualColor, background: `${manualColor}12`, fontSize: "var(--ui-font-micro)" }}>00 · OVERVIEW</span>
+                              <span className="rounded-full px-2 py-1" style={{ color: manualColor, background: `${manualColor}12`, fontSize: "var(--ui-font-micro)" }}>{overviewNo} · OVERVIEW</span>
                               <span style={{ color: manualLoaded ? "#6B9E7A" : "#8E867A", fontSize: "var(--ui-font-caption)" }}>
                                 {manualLoaded ? `已加载到 ${selected.name}` : `尚未加载到 ${selected.name}`}
                               </span>
@@ -6112,7 +6123,7 @@ function AgentGrowthScreen({ sceneControl }: { sceneControl: React.ReactNode }) 
 
                           {!!manifest.capabilities?.length && (
                             <section>
-                              <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>01 · CAPABILITIES / 能力点</p>
+                              <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>{capabilitiesNo} · CAPABILITIES / 能力点</p>
                               <div className="flex flex-wrap gap-1.5 mt-2">
                                 {manifest.capabilities.map(capability => (
                                   <span key={capability} className="rounded-full px-2 py-1.5"
@@ -6126,7 +6137,7 @@ function AgentGrowthScreen({ sceneControl }: { sceneControl: React.ReactNode }) 
 
                           {!!manifest.inputs?.length && (
                             <section>
-                              <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>02 · INPUTS / 调用参数</p>
+                              <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>{inputsNo} · INPUTS / 调用参数</p>
                               <div className="mt-2 flex flex-col gap-1.5">
                                 {manifest.inputs.map((input, index) => (
                                   <div key={input.key} className="grid grid-cols-[22px_1fr] gap-2 rounded-xl p-2" style={{ background: "#F0EBE2" }}>
@@ -6145,7 +6156,7 @@ function AgentGrowthScreen({ sceneControl }: { sceneControl: React.ReactNode }) 
                           )}
 
                           <section>
-                            <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>03 · DEFINITION / 定义完整度</p>
+                            <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>{definitionNo} · DEFINITION / 定义完整度</p>
                             <div className="grid grid-cols-2 gap-2 mt-2">
                               {checks.map(check => (
                                 <div key={check.label} className="rounded-xl p-2.5 flex items-start gap-1.5"
@@ -6164,7 +6175,7 @@ function AgentGrowthScreen({ sceneControl }: { sceneControl: React.ReactNode }) 
 
                           <section className="rounded-2xl p-3" style={{ background: "#F0EBE2", border: "1px solid rgba(28,25,17,.1)" }}>
                             <div className="flex items-center justify-between gap-2">
-                              <p style={{ color: "#7A7468", fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>04 · MAINTAIN / 改名 · 删除</p>
+                              <p style={{ color: "#7A7468", fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>{maintainNo} · MAINTAIN / 改名 · 删除</p>
                               <span style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)" }}>
                                 来源 {SKILL_SOURCE_LABEL[openSkill.source] || openSkill.source}
                               </span>
