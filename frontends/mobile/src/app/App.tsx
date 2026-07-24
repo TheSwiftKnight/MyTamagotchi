@@ -28,6 +28,7 @@ import {
   type AgentTemplateRow,
   type BackendAgent,
   type BackendAgentDetail,
+  type BackendSkillRow,
   type CatalogSkill,
   type DialogLine,
 } from "./backendApi";
@@ -997,7 +998,8 @@ type AgentEditorDraft = {
 };
 
 const AGENT_EDITOR_STORAGE_KEY = "forkworld-existing-agent-settings-v1";
-const AGENT_SKILL_LOADOUT_STORAGE_KEY = "forkworld-agent-skill-loadouts-v1";
+// v2：装载状态改成按后端真实 agent id / skill id（数字）存，和 codex 那版的字符串 id 不兼容
+const AGENT_SKILL_LOADOUT_STORAGE_KEY = "forkworld-agent-skill-loadouts-v2";
 
 const AGENT_ROLE_ZH: Record<string, string> = {
   "Café Keeper": "咖啡馆管理员",
@@ -4964,7 +4966,9 @@ function Esp32Screen({ navigate, archiveTabs }: { navigate: (s: Screen) => void;
 }
 
 type HomeScene = "worldDock" | "everyday" | "stardom" | "future";
-type HomeView = "scene" | "civilization" | "plaza" | "chainPlaza";
+// civilization = Agents 目录页（main 新增，接了后端，含技能就地改名/删除）
+// skills       = Agent 成长档案页（从生产站 codex 分支回补，见 AgentGrowthScreen）
+type HomeView = "scene" | "civilization" | "skills" | "plaza" | "chainPlaza";
 
 function PlazaStyleAgent({ type, size = 72 }: { type: WorldStyleSkillAssetType; size?: number }) {
   const asset = WORLD_STYLE_SKILL_ASSETS.find(item => item.type === type);
@@ -5459,6 +5463,730 @@ function AgentsDirectoryScreen({ sceneControl }: { sceneControl: React.ReactNode
           <p style={{ color: "#8E867A", fontSize: "var(--ui-font-caption)", textAlign: "center", marginTop: 20 }}>正在加载智能体档案…</p>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── SKILLS · AGENT 成长档案 ────────────────────────────────────────────────────
+// 生产站（codex/agentland-unified-plaza-20260724 的 AgentGrowthScreen）这一页在
+// App.tsx 重构时被整段删掉了。这里把 UI 形态补回来，数据源整体换成 FastAPI(:8000)：
+//   · agent 列表 / 形象 / 人格 → GET /api/agents
+//   · 技能与记忆               → GET /api/agents/{id}
+//   · 技能改名 / 删除          → PATCH | DELETE /api/agents/{id}/skills/{skill_id}
+// codex 原版是写死的 Dotti / Miko / Shutter / Noct 四个假 agent + 本地 PLAZA_SKILLS
+// 常量，这里一个都不用：等级、人格版本、进化度全部由真实记忆/技能条数推导，
+// 公式集中在 agentGrowthStats，方便直接和 DB 对账。
+
+type AgentDetailSnapshot = {
+  at: number;
+  agents: BackendAgent[];
+  details: Record<number, BackendAgentDetail>;
+  skills: CatalogSkill[];
+};
+
+// GET /api/agents 不返回记忆/技能条数，只能逐个打 GET /api/agents/{id}。首页头部统计
+// 和成长档案页都要这份数据，缓存一份避免每次切标签重打 11 个请求；技能改名/删除后
+// 调 invalidateAgentDetails() 主动失效。
+const AGENT_DETAIL_TTL_MS = 30_000;
+let agentDetailCache: AgentDetailSnapshot | null = null;
+let agentDetailInflight: Promise<AgentDetailSnapshot> | null = null;
+
+function invalidateAgentDetails() {
+  agentDetailCache = null;
+}
+
+function loadAgentDetails(): Promise<AgentDetailSnapshot> {
+  if (agentDetailCache && Date.now() - agentDetailCache.at < AGENT_DETAIL_TTL_MS) {
+    return Promise.resolve(agentDetailCache);
+  }
+  if (agentDetailInflight) return agentDetailInflight;
+  agentDetailInflight = Promise.all([backendApi.agents(), backendApi.allSkills()])
+    .then(async ([agents, skills]) => {
+      const loaded = await Promise.all(
+        agents.map(agent => backendApi.agent(agent.id).catch(() => null)),
+      );
+      const details: Record<number, BackendAgentDetail> = {};
+      loaded.forEach(detail => { if (detail) details[detail.id] = detail; });
+      agentDetailCache = { at: Date.now(), agents, details, skills };
+      return agentDetailCache;
+    })
+    .finally(() => { agentDetailInflight = null; });
+  return agentDetailInflight;
+}
+
+function useAgentDetails() {
+  const [snapshot, setSnapshot] = useState<AgentDetailSnapshot | null>(() => agentDetailCache);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    loadAgentDetails()
+      .then(next => { if (active) { setSnapshot(next); setError(null); } })
+      .catch(caught => { if (active) setError(caught instanceof Error ? caught.message : "后端未连接"); });
+    return () => { active = false; };
+  }, [reloadNonce]);
+
+  return {
+    agents: snapshot?.agents ?? [],
+    details: snapshot?.details ?? {},
+    skills: snapshot?.skills ?? [],
+    loaded: Boolean(snapshot),
+    error,
+    reload: () => { invalidateAgentDetails(); setReloadNonce(nonce => nonce + 1); },
+  };
+}
+
+type AgentProfileJson = {
+  role?: string;
+  personality?: string;
+  goal?: string;
+  ability?: string;
+  memory_digest?: string;
+};
+
+function parseAgentProfileJson(agent: BackendAgent): AgentProfileJson {
+  try {
+    const parsed = agent.profile ? JSON.parse(agent.profile) : null;
+    return parsed && typeof parsed === "object" ? parsed as AgentProfileJson : {};
+  } catch {
+    return {};
+  }
+}
+
+/** 档案卡上的角色名：profile.role 优先，没有就退回物件类型（category）。 */
+function agentRoleLabel(agent: BackendAgent): string {
+  return parseAgentProfileJson(agent).role?.trim() || agent.category;
+}
+
+/** 特质标签直接切真实的 trait 文案，不编造「专注 / 耐心 / 安全优先」这类假标签。 */
+function agentTraitChips(agent: BackendAgent): string[] {
+  return (agent.trait || "")
+    .split(/[，,、;；。\s]+/)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .map(part => (part.length > 9 ? `${part.slice(0, 9)}…` : part));
+}
+
+type AgentGrowthStats = {
+  memoryCount: number;
+  bondCount: number;
+  skillCount: number;
+  runnableCount: number;
+  level: number;
+  personalityVersion: number;
+  evolutionProgress: number;
+};
+
+/** 全部只吃后端真实条数：记忆表 + 技能表，没有任何写死的数字。 */
+function agentGrowthStats(detail: BackendAgentDetail): AgentGrowthStats {
+  const memoryCount = detail.memories.length;
+  // BONDS = 配对（kind="pair"）产生的羁绊记忆条数
+  const bondCount = detail.memories.filter(memory => memory.kind === "pair").length;
+  const skillCount = detail.skills.length;
+  // def_id 非空即后端 skill_out 里的 runnable：能被 /skills/{id}/invoke 真正调用
+  const runnableCount = detail.skills.filter(skill => Boolean(skill.def_id)).length;
+  return {
+    memoryCount,
+    bondCount,
+    skillCount,
+    runnableCount,
+    // 每 20 段记忆 1 级 + 每个技能 1 级，起步 1 级
+    level: 1 + Math.floor(memoryCount / 20) + skillCount,
+    // 每 50 段记忆迭代一版人格
+    personalityVersion: 1 + Math.floor(memoryCount / 50),
+    // 进化度 = 记忆(≤45) + 羁绊(≤25) + 可调用技能(≤26)，封顶 96%
+    evolutionProgress: Math.min(
+      96,
+      Math.min(45, Math.round(memoryCount * 0.3))
+        + Math.min(25, bondCount * 5)
+        + Math.min(26, runnableCount * 13),
+    ),
+  };
+}
+
+const SKILL_SOURCE_LABEL: Record<string, string> = {
+  user: "主人添加",
+  default: "出厂自带",
+  learned: "广场学来",
+};
+
+const SKILL_KIND_LABEL: Record<string, string> = {
+  demo: "示例实现",
+  prompt: "提示词技能",
+  module: "可执行模块",
+};
+
+type SkillManifestJson = {
+  emoji?: string;
+  category?: string;
+  description?: string;
+  capabilities?: string[];
+  inputs?: { key: string; label: string; type: string; options?: string[] }[];
+  source_repo?: string;
+  cta?: string;
+};
+
+function parseSkillManifest(skill: BackendSkillRow): SkillManifestJson {
+  try {
+    const parsed = skill.manifest ? JSON.parse(skill.manifest) : null;
+    return parsed && typeof parsed === "object" ? parsed as SkillManifestJson : {};
+  } catch {
+    return {};
+  }
+}
+
+function skillDeckColor(skill: BackendSkillRow): string {
+  return DB_AGENT_COLORS[skill.id % DB_AGENT_COLORS.length];
+}
+
+/**
+ * 能力卡上的进度条画的是「定义完整度」——四项都能在 DB 行里查证，
+ * 不是 codex 那种凭空写死的 proficiency 百分比。
+ */
+function skillDefinitionChecks(skill: BackendSkillRow) {
+  return [
+    { label: "有技能名", ok: Boolean(skill.name?.trim()) },
+    { label: "有能力说明", ok: Boolean(skill.description?.trim()) },
+    { label: "有实现（代码或 manifest）", ok: Boolean(skill.code?.trim() || skill.manifest?.trim()) },
+    { label: "已注册 def_id · 可被调用", ok: Boolean(skill.def_id?.trim()) },
+  ];
+}
+
+/** Home 顶部 "Skills" 视图：单个 agent 的成长档案 + 能力卡组。 */
+function AgentGrowthScreen({ sceneControl }: { sceneControl: React.ReactNode }) {
+  const { agents, details, error, reload } = useAgentDetails();
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [openSkillId, setOpenSkillId] = useState<number | null>(null);
+  // 「加载 / 卸载 Skill」是纯前端的装载状态（后端没有这个概念）：
+  // 没有记录 = 该 agent 的技能默认全部装载，卸载过才写进 localStorage。
+  const [loadouts, setLoadouts] = useState<Record<string, number[]>>(() => {
+    try {
+      const raw = JSON.parse(window.localStorage.getItem(AGENT_SKILL_LOADOUT_STORAGE_KEY) || "{}");
+      return raw && typeof raw === "object" ? raw as Record<string, number[]> : {};
+    } catch {
+      return {};
+    }
+  });
+  const [skillDraft, setSkillDraft] = useState({ name: "", description: "" });
+  const [editingSkillId, setEditingSkillId] = useState<number | null>(null);
+  const [skillBusy, setSkillBusy] = useState(false);
+  const [skillError, setSkillError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(AGENT_SKILL_LOADOUT_STORAGE_KEY, JSON.stringify(loadouts));
+    } catch {
+      // localStorage 不可用时，装载状态只在本次会话内有效。
+    }
+  }, [loadouts]);
+
+  const selected = agents.find(agent => agent.id === selectedId) || agents[0] || null;
+  const detail = selected ? details[selected.id] : undefined;
+  const stats = detail ? agentGrowthStats(detail) : null;
+  const color = selected ? dbAgentColor(selected) : "#8E867A";
+  const profile = selected ? parseAgentProfileJson(selected) : {};
+  const traits = selected ? agentTraitChips(selected) : [];
+  const deckSkills = detail?.skills ?? [];
+  const openSkill = deckSkills.find(skill => skill.id === openSkillId);
+
+  const isLoaded = (agentId: number, skillId: number) => {
+    const entry = loadouts[String(agentId)];
+    return entry ? entry.includes(skillId) : true;
+  };
+  const loadedCount = selected ? deckSkills.filter(skill => isLoaded(selected.id, skill.id)).length : 0;
+
+  const toggleSkillLoad = (agentId: number, skillId: number) => {
+    setLoadouts(current => {
+      const key = String(agentId);
+      const all = (details[agentId]?.skills ?? []).map(skill => skill.id);
+      const entry = current[key] ?? all;
+      return {
+        ...current,
+        [key]: entry.includes(skillId) ? entry.filter(id => id !== skillId) : [...entry, skillId],
+      };
+    });
+  };
+
+  const saveSkill = async (agentId: number, skillId: number) => {
+    if (!skillDraft.name.trim()) { setSkillError("技能名不能为空"); return; }
+    setSkillBusy(true); setSkillError(null);
+    try {
+      await backendApi.editSkill(agentId, skillId, {
+        name: skillDraft.name.trim(), description: skillDraft.description.trim(),
+      });
+      setEditingSkillId(null);
+      reload();
+    } catch (caught) {
+      setSkillError(caught instanceof Error ? caught.message : "保存失败");
+    } finally { setSkillBusy(false); }
+  };
+
+  const removeSkill = async (agentId: number, skillId: number) => {
+    setSkillBusy(true); setSkillError(null);
+    try {
+      await backendApi.deleteSkill(agentId, skillId);
+      setEditingSkillId(null);
+      setOpenSkillId(null);
+      reload();
+    } catch (caught) {
+      setSkillError(caught instanceof Error ? caught.message : "删除失败");
+    } finally { setSkillBusy(false); }
+  };
+
+  return (
+    <div className="flex h-full flex-col overflow-y-auto"
+      style={{ background: "#F5F0E8", color: "#1C1911", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
+      <div className="px-4 pt-9 pb-1 flex justify-end">{sceneControl}</div>
+
+      <div className="px-4 pt-2 pb-3 flex items-start justify-between gap-2">
+        <div>
+          <p style={{ color, fontSize: "var(--ui-font-micro)", letterSpacing: 1.2 }}>MY AGENT · GROWTH PROFILE</p>
+          <h1 style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-title)", lineHeight: 1, fontWeight: 700, marginTop: 7 }}>Agent Skills</h1>
+          <p style={{ color: "#7A7468", fontSize: "var(--ui-font-body)", marginTop: 5 }}>看看它正在成为谁，以及它刚刚学会了什么。</p>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 shrink-0"
+          style={{
+            color: error ? "#E8634A" : "#6B9E7A",
+            background: error ? "#E8634A10" : "#6B9E7A12",
+            border: `1px solid ${error ? "#E8634A" : "#6B9E7A"}35`,
+            fontSize: "var(--ui-font-caption)",
+          }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor" }}/>
+          {error ? "后端未连接" : "自主进化中"}
+        </div>
+      </div>
+
+      {error && (
+        <div className="mx-4 mb-2 rounded-xl px-3 py-2.5"
+          style={{ background: "#E8634A12", border: "1px solid #E8634A40", color: "#B5482F", fontSize: "var(--ui-font-caption)" }}>
+          无法读取成长档案：{error}
+        </div>
+      )}
+
+      {/* agent 选择条：后端真实的全部 agent，等级由真实记忆/技能条数推导 */}
+      <div className="shrink-0 px-4 pb-3 flex gap-2 overflow-x-auto" style={{ height: 60, scrollbarWidth: "none" }}>
+        {agents.map(agent => {
+          const active = selected?.id === agent.id;
+          const agentColor = dbAgentColor(agent);
+          const agentDetail = details[agent.id];
+          return (
+            <button
+              key={agent.id}
+              type="button"
+              onClick={() => { setSelectedId(agent.id); setOpenSkillId(null); setEditingSkillId(null); }}
+              className="shrink-0 rounded-xl px-2 py-2 flex items-center gap-2 text-left"
+              style={{
+                width: 112,
+                height: 48,
+                background: active ? `${agentColor}12` : "#FAF6EF",
+                border: `1.5px solid ${active ? agentColor : "rgba(28,25,17,.1)"}`,
+                color: active ? agentColor : "#8E867A",
+              }}
+            >
+              <span className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden shrink-0"
+                style={{ background: `${agentColor}12` }}>
+                <DbAgentAvatar agent={agent} size={28}/>
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate" style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-label)", fontWeight: 700 }}>{agent.name}</span>
+                <span className="block truncate" style={{ fontSize: "var(--ui-font-micro)", marginTop: 2 }}>
+                  {agentDetail ? `LV.${agentGrowthStats(agentDetail).level}` : "LV.…"}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+        {agents.length === 0 && !error && (
+          <span style={{ color: "#8E867A", fontSize: "var(--ui-font-caption)" }}>正在读取智能体档案…</span>
+        )}
+      </div>
+
+      {selected && (
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={selected.id}
+            initial={{ opacity: 0, x: 8 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -8 }}
+            transition={{ duration: .18 }}
+            className="px-4 pb-4 flex flex-col gap-3"
+          >
+            <div className="rounded-[24px] overflow-hidden"
+              style={{
+                background: `linear-gradient(145deg,${color}20,#FAF6EF 52%,#F0EBE2)`,
+                border: `2px solid ${color}`,
+                boxShadow: `0 10px 28px ${color}18`,
+              }}>
+              <div className="grid grid-cols-[43%_57%] min-h-[230px]">
+                <div className="relative flex flex-col items-center justify-center p-3"
+                  style={{ borderRight: `1px solid ${color}28` }}>
+                  <span className="absolute left-3 top-3 rounded-full px-2 py-1"
+                    style={{ background: "#FAF6EF", color, fontSize: "var(--ui-font-micro)" }}>
+                    RESIDENT · LV.{stats ? stats.level : "…"}
+                  </span>
+                  <div className="flex items-center justify-center" style={{ height: 142 }}>
+                    <DbAgentAvatar agent={selected} size={132}/>
+                  </div>
+                  <div style={{ width: 58, height: 8, borderRadius: "50%", background: "rgba(28,25,17,.1)", marginTop: -15 }}/>
+                  <p className="text-center" style={{ color, fontSize: "var(--ui-font-caption)", marginTop: 15 }}>
+                    @{selected.owner_name} · {AGENT_LOCATION_LABEL[selected.location]}
+                  </p>
+                </div>
+                <div className="p-4 flex flex-col justify-center">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate" style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-title)", fontWeight: 700, lineHeight: 1 }}>{selected.name}</p>
+                      <p className="truncate" style={{ color, fontSize: "var(--ui-font-body)", marginTop: 7 }}>{agentRoleLabel(selected)}</p>
+                    </div>
+                    <span className="rounded-lg px-2 py-1 shrink-0" style={{ color, background: `${color}12`, fontSize: "var(--ui-font-micro)" }}>
+                      人格 v{stats ? stats.personalityVersion : "…"}
+                    </span>
+                  </div>
+                  {/* 人格引言用真实的 memory_digest（agent 自述的长期印象），没有就退回 trait */}
+                  <p className="line-clamp-4" style={{ color: "#625D54", fontSize: "var(--ui-font-body)", lineHeight: 1.7, marginTop: 13 }}>
+                    “{profile.memory_digest?.trim() || selected.trait}”
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-3">
+                    {traits.map(trait => (
+                      <span key={trait} className="rounded-full px-2 py-1"
+                        style={{ color, background: "#FAF6EF", border: `1px solid ${color}28`, fontSize: "var(--ui-font-caption)" }}>
+                        {trait}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between" style={{ fontSize: "var(--ui-font-micro)" }}>
+                      <span style={{ color: "#7A7468" }}>SELF EVOLUTION</span>
+                      <span style={{ color }}>{stats ? `${stats.evolutionProgress}%` : "…"}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden mt-1.5" style={{ background: "#E7E0D5" }}>
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${stats?.evolutionProgress ?? 0}%` }}
+                        className="h-full rounded-full"
+                        style={{ background: color }}
+                      />
+                    </div>
+                    <p style={{ color: "#7A7468", fontSize: "var(--ui-font-caption)", lineHeight: 1.5, marginTop: 7 }}>
+                      {stats
+                        ? `正在把 ${stats.memoryCount} 段记忆与 ${stats.skillCount} 项能力整理成可独立加载的方法，其中 ${stats.runnableCount} 项已经能被直接调用。`
+                        : "正在读取记忆与能力…"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3" style={{ background: "rgba(250,246,239,.76)", borderTop: `1px solid ${color}22` }}>
+                {[
+                  ["MEMORY", stats?.memoryCount, "段长期记忆"],
+                  ["BONDS", stats?.bondCount, "个稳定关系"],
+                  ["SKILLS", stats?.skillCount, "个能力绑定"],
+                ].map(([label, value, note], index) => (
+                  <div key={String(label)} className="py-2.5 text-center"
+                    style={{ borderRight: index < 2 ? "1px solid rgba(28,25,17,.08)" : "none" }}>
+                    <p style={{ color, fontSize: "var(--ui-font-label)" }}>{value ?? "…"}</p>
+                    <p style={{ color: "#7A7468", fontSize: "var(--ui-font-micro)", marginTop: 3 }}>{label} · {note}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* SKILL DECK：后端 /api/agents/{id} 返回的真实技能行 */}
+            <div>
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <div className="min-w-0">
+                  <p style={{ color: "#7A7468", fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>SKILL DECK</p>
+                  <p className="truncate" style={{ fontSize: "var(--ui-font-label)", marginTop: 4 }}>
+                    {loadedCount ? `已加载到 ${selected.name} 的能力卡` : `${selected.name} 的可用能力卡`}
+                  </p>
+                </div>
+                <span className="shrink-0" style={{ color: "#8E867A", fontSize: "var(--ui-font-caption)" }}>独立加载 · 可升级 · 可回滚</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {deckSkills.map(skill => {
+                  const skillColor = skillDeckColor(skill);
+                  const runnable = Boolean(skill.def_id);
+                  const featured = skill.kind === "module";
+                  const loaded = isLoaded(selected.id, skill.id);
+                  const manifest = parseSkillManifest(skill);
+                  const checks = skillDefinitionChecks(skill);
+                  const completeness = Math.round(checks.filter(check => check.ok).length / checks.length * 100);
+                  return (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      aria-expanded={openSkillId === skill.id}
+                      onClick={() => {
+                        setOpenSkillId(current => current === skill.id ? null : skill.id);
+                        setEditingSkillId(null);
+                        setSkillError(null);
+                      }}
+                      className={`${featured ? "col-span-2" : ""} rounded-2xl p-3 text-left`}
+                      style={{
+                        background: loaded ? `${skillColor}10` : "#FAF6EF",
+                        border: `${featured ? 2 : 1.5}px ${loaded ? "solid" : "dashed"} ${skillColor}${featured ? "90" : "45"}`,
+                        boxShadow: featured && loaded ? `0 8px 22px ${skillColor}18` : undefined,
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                          style={{ background: `${skillColor}18`, color: skillColor }}>
+                          {runnable ? <Check size={13}/> : <Sparkles size={13}/>}
+                        </span>
+                        <span className="truncate" style={{ color: skillColor, fontSize: "var(--ui-font-micro)" }}>
+                          {runnable ? "MASTERED · 可调用" : "LEARNING · 待接实现"}
+                        </span>
+                      </div>
+                      <p className="truncate" style={{ fontSize: featured ? "var(--ui-font-heading)" : "var(--ui-font-label)", marginTop: 9 }}>
+                        {manifest.emoji ? `${manifest.emoji} ` : ""}{skill.name}
+                      </p>
+                      {featured && skill.description && (
+                        <p className="line-clamp-2" style={{ color: "#625D54", fontSize: "var(--ui-font-caption)", lineHeight: 1.55, marginTop: 5 }}>{skill.description}</p>
+                      )}
+                      {!!manifest.capabilities?.length && (
+                        <p className="line-clamp-2" style={{ color: featured ? skillColor : "#7A7468", fontSize: "var(--ui-font-caption)", lineHeight: 1.5, marginTop: 7 }}>
+                          {manifest.capabilities.slice(0, featured ? 4 : 2).join(" · ")}
+                        </p>
+                      )}
+                      <div className="h-1.5 rounded-full overflow-hidden mt-3" style={{ background: "#E7E0D5" }}>
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${completeness}%` }}
+                          className="h-full rounded-full" style={{ background: skillColor }}/>
+                      </div>
+                      <div className="mt-2 flex items-end justify-between gap-1">
+                        <p className="truncate" style={{ color: skillColor, fontSize: "var(--ui-font-micro)" }}>
+                          {SKILL_SOURCE_LABEL[skill.source] || skill.source} · {SKILL_KIND_LABEL[skill.kind] || skill.kind}
+                        </p>
+                        <span className="flex items-center gap-0.5 shrink-0" style={{ color: skillColor, fontSize: "var(--ui-font-micro)" }}>
+                          说明书 <ChevronRight size={8} style={{ transform: openSkillId === skill.id ? "rotate(90deg)" : undefined }}/>
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+                {detail && deckSkills.length === 0 && (
+                  <p className="col-span-2 rounded-2xl p-3 text-center"
+                    style={{ background: "#FAF6EF", border: "1.5px dashed rgba(28,25,17,.18)", color: "#8E867A", fontSize: "var(--ui-font-caption)" }}>
+                    {selected.name} 还没有绑定任何能力——去 Plaza 让它跟别人学一个吧。
+                  </p>
+                )}
+                {!detail && (
+                  <p className="col-span-2 text-center" style={{ color: "#8E867A", fontSize: "var(--ui-font-caption)" }}>正在读取能力卡…</p>
+                )}
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {openSkill && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0, y: -5 }}
+                  animate={{ opacity: 1, height: "auto", y: 0 }}
+                  exit={{ opacity: 0, height: 0, y: -5 }}
+                  className="overflow-hidden"
+                >
+                  {(() => {
+                    const manualColor = skillDeckColor(openSkill);
+                    const manifest = parseSkillManifest(openSkill);
+                    const checks = skillDefinitionChecks(openSkill);
+                    const manualLoaded = isLoaded(selected.id, openSkill.id);
+                    return (
+                      <div className="rounded-[22px] overflow-hidden"
+                        style={{ background: "#FAF6EF", border: `2px solid ${manualColor}`, boxShadow: `0 8px 24px ${manualColor}16` }}>
+                        <div className="px-4 py-3 flex items-start justify-between gap-3"
+                          style={{ background: `${manualColor}12`, borderBottom: `1px solid ${manualColor}28` }}>
+                          <div className="min-w-0">
+                            <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1.2 }}>
+                              SKILL MANUAL · {SKILL_KIND_LABEL[openSkill.kind] || openSkill.kind}
+                            </p>
+                            <h2 className="truncate" style={{ fontSize: "var(--ui-font-heading)", marginTop: 7 }}>{openSkill.name}</h2>
+                            <p className="truncate" style={{ color: manualColor, fontSize: "var(--ui-font-body)", marginTop: 4 }}>
+                              {openSkill.def_id || "未注册 def_id · 暂不可调用"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleSkillLoad(selected.id, openSkill.id)}
+                              className="rounded-xl px-2.5"
+                              style={{
+                                height: 32,
+                                border: `1px solid ${manualColor}55`,
+                                background: manualLoaded ? "#FAF6EF" : manualColor,
+                                color: manualLoaded ? manualColor : "white",
+                                fontSize: "var(--ui-font-micro)",
+                              }}
+                            >
+                              {manualLoaded ? "卸载 Skill" : "加载 Skill"}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="关闭 Skill 说明书"
+                              onClick={() => { setOpenSkillId(null); setEditingSkillId(null); }}
+                              className="w-8 h-8 rounded-xl flex items-center justify-center"
+                              style={{ border: `1px solid ${manualColor}35`, background: "#FAF6EF", color: manualColor }}
+                            >
+                              <X size={13}/>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="p-4 flex flex-col gap-4">
+                          <section>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="rounded-full px-2 py-1" style={{ color: manualColor, background: `${manualColor}12`, fontSize: "var(--ui-font-micro)" }}>00 · OVERVIEW</span>
+                              <span style={{ color: manualLoaded ? "#6B9E7A" : "#8E867A", fontSize: "var(--ui-font-caption)" }}>
+                                {manualLoaded ? `已加载到 ${selected.name}` : `尚未加载到 ${selected.name}`}
+                              </span>
+                            </div>
+                            <p style={{ color: "#625D54", fontSize: "var(--ui-font-body)", lineHeight: 1.8, marginTop: 8 }}>
+                              {openSkill.description || manifest.description || "这个能力还没有写说明。"}
+                            </p>
+                          </section>
+
+                          {/* 「练了吗」实时姿态技能：装载后才连摄像头，与 codex 生产站一致 */}
+                          {openSkill.def_id === "supervised-training" && manualLoaded && <SupervisedTrainingConsole/>}
+
+                          {!!manifest.capabilities?.length && (
+                            <section>
+                              <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>01 · CAPABILITIES / 能力点</p>
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {manifest.capabilities.map(capability => (
+                                  <span key={capability} className="rounded-full px-2 py-1.5"
+                                    style={{ color: manualColor, background: `${manualColor}12`, fontSize: "var(--ui-font-caption)" }}>
+                                    {capability}
+                                  </span>
+                                ))}
+                              </div>
+                            </section>
+                          )}
+
+                          {!!manifest.inputs?.length && (
+                            <section>
+                              <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>02 · INPUTS / 调用参数</p>
+                              <div className="mt-2 flex flex-col gap-1.5">
+                                {manifest.inputs.map((input, index) => (
+                                  <div key={input.key} className="grid grid-cols-[22px_1fr] gap-2 rounded-xl p-2" style={{ background: "#F0EBE2" }}>
+                                    <span className="w-[22px] h-[22px] rounded-lg flex items-center justify-center"
+                                      style={{ color: manualColor, background: `${manualColor}12`, fontSize: "var(--ui-font-micro)" }}>
+                                      {String(index + 1).padStart(2, "0")}
+                                    </span>
+                                    <p style={{ color: "#625D54", fontSize: "var(--ui-font-caption)", lineHeight: 1.6 }}>
+                                      {input.label}（{input.type}）
+                                      {input.options?.length ? ` · ${input.options.join(" / ")}` : ""}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </section>
+                          )}
+
+                          <section>
+                            <p style={{ color: manualColor, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>03 · DEFINITION / 定义完整度</p>
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                              {checks.map(check => (
+                                <div key={check.label} className="rounded-xl p-2.5 flex items-start gap-1.5"
+                                  style={{
+                                    background: check.ok ? "#EEF3EC" : "#F0EBE2",
+                                    border: `1px solid ${check.ok ? "rgba(107,158,122,.28)" : "rgba(28,25,17,.1)"}`,
+                                  }}>
+                                  <span className="shrink-0" style={{ color: check.ok ? "#6B9E7A" : "#B0A99C", fontSize: "var(--ui-font-micro)" }}>
+                                    {check.ok ? "✓" : "—"}
+                                  </span>
+                                  <p style={{ color: "#625D54", fontSize: "var(--ui-font-caption)", lineHeight: 1.5 }}>{check.label}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </section>
+
+                          <section className="rounded-2xl p-3" style={{ background: "#F0EBE2", border: "1px solid rgba(28,25,17,.1)" }}>
+                            <div className="flex items-center justify-between gap-2">
+                              <p style={{ color: "#7A7468", fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>04 · MAINTAIN / 改名 · 删除</p>
+                              <span style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)" }}>
+                                来源 {SKILL_SOURCE_LABEL[openSkill.source] || openSkill.source}
+                              </span>
+                            </div>
+                            {editingSkillId === openSkill.id ? (
+                              <div className="mt-2">
+                                <input value={skillDraft.name} disabled={skillBusy}
+                                  onChange={event => setSkillDraft(draft => ({ ...draft, name: event.target.value }))}
+                                  placeholder="技能名"
+                                  className="w-full rounded-lg px-2 py-1.5"
+                                  style={{ border: "1px solid rgba(28,25,17,.18)", background: "#FFFCF6", fontSize: "var(--ui-font-caption)", color: "#1C1911" }}/>
+                                <textarea value={skillDraft.description} disabled={skillBusy} rows={2}
+                                  onChange={event => setSkillDraft(draft => ({ ...draft, description: event.target.value }))}
+                                  placeholder="这个技能做什么"
+                                  className="w-full rounded-lg px-2 py-1.5 mt-1.5"
+                                  style={{ border: "1px solid rgba(28,25,17,.18)", background: "#FFFCF6", fontSize: "var(--ui-font-micro)", color: "#1C1911", resize: "none" }}/>
+                                {skillError && <p style={{ color: "#C0442C", fontSize: "var(--ui-font-micro)", marginTop: 4 }}>{skillError}</p>}
+                                <div className="flex gap-1.5 mt-2">
+                                  <button type="button" disabled={skillBusy}
+                                    onClick={() => saveSkill(selected.id, openSkill.id)}
+                                    className="rounded-lg px-3 py-1.5"
+                                    style={{ background: manualColor, color: "#FFFCF6", fontSize: "var(--ui-font-micro)" }}>
+                                    {skillBusy ? "保存中…" : "保存"}
+                                  </button>
+                                  <button type="button" disabled={skillBusy}
+                                    onClick={() => { setEditingSkillId(null); setSkillError(null); }}
+                                    className="rounded-lg px-3 py-1.5"
+                                    style={{ border: "1px solid rgba(28,25,17,.18)", fontSize: "var(--ui-font-micro)", color: "#6F685D" }}>
+                                    取消
+                                  </button>
+                                  <button type="button" disabled={skillBusy}
+                                    onClick={() => removeSkill(selected.id, openSkill.id)}
+                                    className="rounded-lg px-3 py-1.5 ml-auto"
+                                    style={{ border: "1px solid #C0442C40", color: "#C0442C", fontSize: "var(--ui-font-micro)" }}>
+                                    删除
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button type="button"
+                                onClick={() => {
+                                  setEditingSkillId(openSkill.id);
+                                  setSkillDraft({ name: openSkill.name, description: openSkill.description || "" });
+                                  setSkillError(null);
+                                }}
+                                className="rounded-lg px-3 py-1.5 mt-2"
+                                style={{ border: `1px solid ${manualColor}40`, color: manualColor, fontSize: "var(--ui-font-micro)" }}>
+                                编辑这张能力卡
+                              </button>
+                            )}
+                          </section>
+
+                          <p style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)", textAlign: "center" }}>
+                            说明书随 Skill 独立加载 · 来源可追溯 · 版本可升级与回滚
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="rounded-2xl p-3" style={{ background: "#FAF6EF", border: "1.5px solid rgba(28,25,17,.1)" }}>
+              <div className="flex items-center justify-between">
+                <p style={{ fontSize: "var(--ui-font-label)" }}>最近一次成长</p>
+                <span style={{ color: "#6B9E7A", fontSize: "var(--ui-font-micro)" }}>EVOLUTION LOG</span>
+              </div>
+              <div className="grid grid-cols-[28px_1fr] gap-2 mt-2 items-start">
+                <span className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: `${color}12`, color }}><Sparkles size={13}/></span>
+                <div>
+                  {/* 真实的最近一条记忆，而不是写死的进化文案 */}
+                  <p style={{ color: "#1C1911", fontSize: "var(--ui-font-body)", lineHeight: 1.6 }}>
+                    {detail?.memories[0]?.content || "还没有留下记忆——先和它聊两句吧。"}
+                  </p>
+                  <p style={{ color: "#8E867A", fontSize: "var(--ui-font-caption)", marginTop: 5 }}>
+                    {detail?.memories[0]
+                      ? `来源 ${detail.memories[0].kind} · 由记忆、关系变化和 Plaza 学习共同触发`
+                      : "由记忆、关系变化和 Plaza 学习共同触发"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      )}
     </div>
   );
 }
@@ -6325,12 +7053,21 @@ function HomeTopTabs({ scene, view, onSceneChange, onViewChange, accent }: {
   onViewChange: (view: HomeView) => void;
   accent: string;
 }) {
+  // 生产站是 Scene ▾ | Skills | Plaza | 链上广场；main 把 Skills 换成了 Agents 目录页。
+  // 两页各有各的用处（成长档案 vs 全量档案+技能维护），所以标签栏并成五格都保留。
+  const viewTabs: { id: HomeView; label: string; accent: string; compact?: boolean }[] = [
+    { id: "civilization", label: "Agents", accent: "#6B9E7A" },
+    { id: "skills", label: "Skills", accent: "#D18A3D" },
+    { id: "plaza", label: "Plaza", accent: "#4A7FA5" },
+    { id: "chainPlaza", label: "链上广场", accent: "#6D6884", compact: true },
+  ];
+
   return (
     <div style={{
-      width: 340,
+      width: 356,
       display: "grid",
-      gridTemplateColumns: "repeat(4,minmax(0,1fr))",
-      gap: 4,
+      gridTemplateColumns: "repeat(5,minmax(0,1fr))",
+      gap: 3,
       padding: 4,
       borderRadius: 14,
       background: "rgba(28,25,17,.055)",
@@ -6377,58 +7114,28 @@ function HomeTopTabs({ scene, view, onSceneChange, onViewChange, accent }: {
           <option value="future">Maker Hall</option>
         </select>
       </div>
-      <button
-        type="button"
-        aria-pressed={view === "civilization"}
-        onClick={() => onViewChange("civilization")}
-        style={{
-          height: 32,
-          border: "none",
-          borderRadius: 10,
-          background: view === "civilization" ? "#6B9E7A" : "transparent",
-          color: view === "civilization" ? "white" : "#8E867A",
-          boxShadow: view === "civilization" ? "0 1px 4px rgba(28,25,17,.16)" : "none",
-          cursor: "pointer",
-          fontSize: "var(--ui-font-caption)",
-        }}
-      >
-        Agents
-      </button>
-      <button
-        type="button"
-        aria-pressed={view === "plaza"}
-        onClick={() => onViewChange("plaza")}
-        style={{
-          height: 32,
-          border: "none",
-          borderRadius: 10,
-          background: view === "plaza" ? "#4A7FA5" : "transparent",
-          color: view === "plaza" ? "white" : "#8E867A",
-          boxShadow: view === "plaza" ? "0 1px 4px rgba(28,25,17,.16)" : "none",
-          cursor: "pointer",
-          fontSize: "var(--ui-font-caption)",
-        }}
-      >
-        Plaza
-      </button>
-      <button
-        type="button"
-        aria-pressed={view === "chainPlaza"}
-        onClick={() => onViewChange("chainPlaza")}
-        style={{
-          height: 32,
-          border: "none",
-          borderRadius: 10,
-          background: view === "chainPlaza" ? "#6D6884" : "transparent",
-          color: view === "chainPlaza" ? "white" : "#8E867A",
-          boxShadow: view === "chainPlaza" ? "0 1px 4px rgba(28,25,17,.16)" : "none",
-          cursor: "pointer",
-          fontSize: "var(--ui-font-micro)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        链上广场
-      </button>
+      {viewTabs.map(tab => (
+        <button
+          key={tab.id}
+          type="button"
+          aria-pressed={view === tab.id}
+          onClick={() => onViewChange(tab.id)}
+          style={{
+            height: 32,
+            border: "none",
+            borderRadius: 10,
+            padding: 0,
+            background: view === tab.id ? tab.accent : "transparent",
+            color: view === tab.id ? "white" : "#8E867A",
+            boxShadow: view === tab.id ? "0 1px 4px rgba(28,25,17,.16)" : "none",
+            cursor: "pointer",
+            fontSize: tab.compact ? "var(--ui-font-micro)" : "var(--ui-font-caption)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {tab.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -6659,6 +7366,7 @@ export default function App() {
           <div className="flex-1 overflow-hidden flex flex-col">
             <div className="flex-1 overflow-hidden flex flex-col">
               {homeView === "civilization" && <AgentsDirectoryScreen sceneControl={sceneControl}/>}
+              {homeView === "skills" && <AgentGrowthScreen sceneControl={sceneControl}/>}
               {homeView === "chainPlaza" && <ChainPlazaScreen sceneControl={sceneControl}/>}
               {homeView === "plaza" && (
                 <PlazaScreen
