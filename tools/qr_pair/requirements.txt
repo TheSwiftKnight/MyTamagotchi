@@ -1,0 +1,6 @@
+# 锁 4.x：OpenCV 5.0 的 wechat_qrcode CNN 模型加载 Python 绑定有 bug（构造即抛异常）
+opencv-contrib-python==4.11.0.86
+numpy>=1.26
+httpx>=0.27
+qrcode[pil]>=7.4
+Pillow>=10.0
