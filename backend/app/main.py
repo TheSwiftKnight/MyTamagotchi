@@ -641,11 +641,6 @@ async def forge_skill_endpoint(body: ForgeIn, session: Session = Depends(get_ses
 
 # ---------- pets（拍照 → 角色 pipeline，对齐 ForkWorld petApi） ----------
 
-@app.get("/api/pets")
-def pets_list():
-    return {"assets": pets.list_assets()}
-
-
 @app.post("/api/pets", status_code=202)
 async def pets_submit(request: Request):
     data = await request.body()
@@ -659,42 +654,38 @@ async def pets_submit(request: Request):
 
 
 @app.get("/api/pets/{job_id}")
-def pets_job(job_id: str):
-    job = pets.JOBS.get(job_id)
+def pets_job(job_id: str, accessToken: str = ""):
+    job = pets.get_job(job_id, accessToken)
     if not job:
         raise HTTPException(404, "job not found")
     return job
 
 
 @app.post("/api/pets/{job_id}/retry", status_code=202)
-def pets_retry(job_id: str):
+def pets_retry(job_id: str, accessToken: str = ""):
     try:
-        return pets.retry(job_id)
+        return pets.retry(job_id, accessToken)
     except KeyError:
         raise HTTPException(404, "job not found")
 
 
-@app.post("/api/pets/{job_id}/register")
-async def pets_register(job_id: str):
-    try:
-        asset = await pets.register(job_id, ME_USER_ID)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    return {"asset": asset}
+@app.delete("/api/pets/{job_id}")
+def pets_release(job_id: str, accessToken: str = ""):
+    if not pets.release(job_id, accessToken):
+        raise HTTPException(404, "job not found")
+    return {"ok": True}
 
 
 @app.get("/api/pets/{job_id}/files/{stage}")
-def pets_file(job_id: str, stage: str):
-    d = pets.PETS_DIR / job_id
-    if stage == "source":
-        matches = list(d.glob("source.*"))
-        if not matches:
-            raise HTTPException(404, "file not found")
-        return FileResponse(matches[0])
-    path = d / f"{stage}.png"
-    if stage not in ("clean", "final") or not path.exists():
+def pets_file(job_id: str, stage: str, accessToken: str = ""):
+    path = pets.resolve_file(job_id, stage, accessToken)
+    if not path:
         raise HTTPException(404, "file not found")
-    return FileResponse(path, media_type="image/png")
+    return FileResponse(
+        path,
+        media_type="image/png" if stage != "source" else None,
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 # ---------- world engine（对齐 ForkWorld worldApi） ----------

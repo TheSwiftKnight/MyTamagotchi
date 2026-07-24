@@ -1,27 +1,23 @@
-"""拍照 → ForkWorld 风格角色 pipeline（对齐原 Node pet-pipeline 的 API 形状）。
+"""拍照 → ForkWorld 风格角色 pipeline。
 
-流程：上传原图 → gemini 图生图（吉祥物风格 + 纯绿幕背景）→ PIL 色键去背 → 注册成 Agent。
-Job 存内存 + 磁盘（uploads/pets/{job_id}/），注册资产列入 index.json。
+服务器只保存带访问令牌的短期处理任务。浏览器下载三张结果图后会删除
+任务；放弃的任务 30 分钟后自动清理，不注册进共享 Agent 数据库。
 """
 
 import asyncio
 import base64
 import io
 import json
+import shutil
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from PIL import Image
-from sqlmodel import Session
-
 from . import llm
-from .db import engine
-from .models import Agent, Memory
 
 PETS_DIR = Path(__file__).resolve().parent.parent / "uploads" / "pets"
-INDEX_PATH = PETS_DIR / "index.json"
 
 SUBJECT_STYLE_PROMPT = (
     "Transform the dominant subject of this photo into a cute ForkWorld mascot character: "
@@ -34,9 +30,11 @@ SUBJECT_STYLE_PROMPT = (
 )
 
 JOBS: dict[str, dict] = {}
+EXPIRY_HANDLES: dict[str, asyncio.TimerHandle] = {}
 
-ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
+ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
 MAX_BYTES = 12 * 1024 * 1024
+JOB_TTL_SECONDS = 30 * 60
 
 
 def _now_iso() -> str:
@@ -53,35 +51,46 @@ def _persist(job: dict) -> None:
     (_job_dir(job["id"]) / "job.json").write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
 
 
-def _load_index() -> list[dict]:
-    if INDEX_PATH.exists():
-        try:
-            return json.loads(INDEX_PATH.read_text(encoding="utf-8")).get("assets", [])
-        except Exception:
-            return []
-    return []
-
-
-def _save_index(assets: list[dict]) -> None:
-    PETS_DIR.mkdir(parents=True, exist_ok=True)
-    INDEX_PATH.write_text(json.dumps({"assets": assets}, ensure_ascii=False), encoding="utf-8")
-
-
 def load_jobs_from_disk() -> None:
-    """启动时恢复 job（崩溃时残留的进行中 job 标记为 failed 以便 retry）。"""
-    if not PETS_DIR.exists():
-        return
-    for jf in PETS_DIR.glob("pet-*/job.json"):
-        try:
-            job = json.loads(jf.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if job.get("status") in ("queued", "processing"):
-            job["status"] = "failed"
-            job["stage"] = "failed"
-            job["error"] = "服务器重启中断了处理，请点击重试"
-            _persist(job)
-        JOBS[job["id"]] = job
+    """服务重启时清除全部临时任务，不恢复成共享资产。"""
+    JOBS.clear()
+    for handle in EXPIRY_HANDLES.values():
+        handle.cancel()
+    EXPIRY_HANDLES.clear()
+    shutil.rmtree(PETS_DIR, ignore_errors=True)
+    PETS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def public_job(job: dict) -> dict:
+    keys = ("id", "accessToken", "name", "status", "stage", "progress",
+            "createdAt", "updatedAt", "error", "asset")
+    return {key: job[key] for key in keys if key in job and job[key] is not None}
+
+
+def get_job(job_id: str, access_token: str) -> dict | None:
+    job = JOBS.get(job_id)
+    return public_job(job) if job and job.get("accessToken") == access_token else None
+
+
+def release(job_id: str, access_token: str) -> bool:
+    job = JOBS.get(job_id)
+    if not job or job.get("accessToken") != access_token:
+        return False
+    handle = EXPIRY_HANDLES.pop(job_id, None)
+    if handle:
+        handle.cancel()
+    JOBS.pop(job_id, None)
+    shutil.rmtree(PETS_DIR / job_id, ignore_errors=True)
+    return True
+
+
+def _schedule_expiry(job: dict) -> None:
+    previous = EXPIRY_HANDLES.pop(job["id"], None)
+    if previous:
+        previous.cancel()
+    EXPIRY_HANDLES[job["id"]] = asyncio.get_event_loop().call_later(
+        JOB_TTL_SECONDS, release, job["id"], job["accessToken"]
+    )
 
 
 def chroma_key_remove(png_bytes: bytes) -> bytes:
@@ -128,17 +137,18 @@ async def process(job_id: str) -> None:
         final_bytes = await asyncio.to_thread(chroma_key_remove, clean_bytes)
         (d / "final.png").write_bytes(final_bytes)
 
-        job.update(stage="register", progress=92, updatedAt=_now_iso())
+        job.update(stage="localize", progress=92, updatedAt=_now_iso())
         _persist(job)
+        token = job["accessToken"]
         job["asset"] = {
             "id": job_id,
             "name": job["name"],
             "role": "萌化陪伴 Agent",
             "world": "Memory Town",
             "color": "#E8634A",
-            "sourceUrl": f"/api/pets/{job_id}/files/source",
-            "cleanUrl": f"/api/pets/{job_id}/files/clean",
-            "finalUrl": f"/api/pets/{job_id}/files/final",
+            "sourceUrl": f"/api/pets/{job_id}/files/source?accessToken={token}",
+            "cleanUrl": f"/api/pets/{job_id}/files/clean?accessToken={token}",
+            "finalUrl": f"/api/pets/{job_id}/files/final?accessToken={token}",
             "stylizeProvider": f"openrouter:{llm.IMG_MODEL}",
             "removeBackgroundProvider": "local:chroma-key",
             "promptVersion": "forkworld-subject-v3",
@@ -161,11 +171,15 @@ def submit(data: bytes, mime: str, name: str, filename: str) -> dict:
     if mime not in ALLOWED_MIME:
         raise ValueError(f"不支持的图片格式：{mime}")
     job_id = f"pet-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
-    ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}[mime]
+    ext = {
+        "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+        "image/heic": ".heic", "image/heif": ".heif",
+    }[mime]
     d = _job_dir(job_id)
     (d / f"source{ext}").write_bytes(data)
     job = {
         "id": job_id,
+        "accessToken": str(uuid.uuid4()),
         "name": name or "新伙伴",
         "filename": filename,
         "mime": mime,
@@ -177,70 +191,29 @@ def submit(data: bytes, mime: str, name: str, filename: str) -> dict:
     }
     JOBS[job_id] = job
     _persist(job)
+    _schedule_expiry(job)
     asyncio.get_event_loop().create_task(process(job_id))
-    return job
+    return public_job(job)
 
 
-def retry(job_id: str) -> dict:
+def retry(job_id: str, access_token: str) -> dict:
     job = JOBS.get(job_id)
-    if not job:
+    if not job or job.get("accessToken") != access_token:
         raise KeyError("job not found")
     job.update(status="queued", stage="upload", progress=8, error=None, updatedAt=_now_iso())
     _persist(job)
+    _schedule_expiry(job)
     asyncio.get_event_loop().create_task(process(job_id))
-    return job
+    return public_job(job)
 
 
-async def register(job_id: str, owner_id: int = 1) -> dict:
-    """注册：生成人设 → 建 Agent（进 inventory 日常精灵）→ 记入 index。"""
+def resolve_file(job_id: str, stage: str, access_token: str) -> Path | None:
     job = JOBS.get(job_id)
-    if not job or job.get("status") != "ready":
-        raise ValueError("job 尚未就绪")
-    assets = _load_index()
-    existing = next((a for a in assets if a["id"] == job_id), None)
-    if existing:
-        return existing
-
-    persona = await llm.chat_json([
-        {"role": "system", "content": "你为像素宠物世界的新角色生成人设。只输出 JSON。"},
-        {"role": "user", "content": (
-            f"角色名字：{job['name']}。生成 JSON：{{\"trait\": \"20字以内性格\", "
-            f"\"personality\": [\"三个\", \"性格\", \"关键词\"], \"temperament\": \"10字气质描述\", "
-            f"\"category\": \"这个名字最可能的物品/生物类型（两三个字）\", \"greeting\": \"25字初次见面台词\"}}"
-        )},
-    ]) or {}
-    asset = dict(job["asset"])
-    asset["personality"] = persona.get("personality", ["温柔", "好奇", "陪伴"])
-    asset["temperament"] = persona.get("temperament", "温暖粘人的小伙伴")
-    asset["registeredAt"] = _now_iso()
-
-    with Session(engine) as session:
-        agent = Agent(
-            owner_id=owner_id,
-            name=job["name"],
-            category=persona.get("category", "宠物"),
-            emoji="🐾",
-            trait=persona.get("trait", "刚被拍进世界的新伙伴"),
-            mood=90,
-            location="home",
-            world="everyday",
-            sprite_url=asset["finalUrl"],
-            in_world=False,
-        )
-        session.add(agent)
-        session.commit()
-        session.refresh(agent)
-        session.add(Memory(agent_id=agent.id, kind="camera",
-                           content=f"主人拍下了我，我变成了 ForkWorld 的一员！{persona.get('greeting', '')}"))
-        session.commit()
-        asset["agentId"] = agent.id
-
-    assets.insert(0, asset)
-    _save_index(assets)
-    job["asset"] = asset
-    _persist(job)
-    return asset
-
-
-def list_assets() -> list[dict]:
-    return _load_index()
+    if not job or job.get("accessToken") != access_token:
+        return None
+    d = PETS_DIR / job_id
+    if stage == "source":
+        matches = list(d.glob("source.*"))
+        return matches[0] if matches else None
+    path = d / f"{stage}.png"
+    return path if stage in ("clean", "final") and path.exists() else None

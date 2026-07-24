@@ -10,6 +10,7 @@ import {
   PetPipeline,
   flattenChromaBackground,
   normalizeGmiUpload,
+  petUploadLimits,
   validateStylizedSubject,
   validateTransparentSubject,
 } from "./pet-pipeline.mjs";
@@ -28,16 +29,16 @@ async function makePetImage({ transparent = false, secondSubject = false } = {})
   }).composite(overlays).png().toBuffer();
 }
 
-async function waitForJob(pipeline, id) {
+async function waitForJob(pipeline, id, accessToken) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const job = pipeline.getJob(id);
+    const job = pipeline.getJob(id, accessToken);
     if (job?.status === "ready" || job?.status === "failed") return job;
     await new Promise(resolve => setTimeout(resolve, 25));
   }
   throw new Error("Test job did not finish");
 }
 
-test("subject pipeline keeps a generated Agent as a draft until My Agents registration", async () => {
+test("subject pipeline keeps a generated Agent private until the client releases it", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "forkworld-pet-"));
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   try {
@@ -54,16 +55,20 @@ test("subject pipeline keeps a generated Agent as a draft until My Agents regist
       create: { width: 24, height: 24, channels: 3, background: "#b88963" },
     }).jpeg().toBuffer();
     const submitted = pipeline.submit(source, { filename: "pet.jpg", mime: "image/jpeg", name: "小栗" });
-    const job = await waitForJob(pipeline, submitted.id);
+    const job = await waitForJob(pipeline, submitted.id, submitted.accessToken);
 
     assert.equal(job.status, "ready", job.error);
     assert.equal(job.asset.name, "小栗");
+    assert.equal(pipeline.getJob(submitted.id, "another-phone"), null);
     assert.match(job.asset.stylizeProvider, /^gmi:/);
     assert.match(job.asset.removeBackgroundProvider, /^gmi:/);
-    const finalPath = pipeline.resolveFile(submitted.id, "final");
+    const finalPath = pipeline.resolveFile(submitted.id, "final", submitted.accessToken);
     const metadata = await sharp(await readFile(finalPath)).metadata();
     assert.equal(metadata.hasAlpha, true);
-    assert.equal(pipeline.listAssets().length, 0);
+    assert.equal(pipeline.resolveFile(submitted.id, "final", "another-phone"), null);
+    assert.equal(await pipeline.release(submitted.id, "another-phone"), false);
+    assert.equal(await pipeline.release(submitted.id, submitted.accessToken), true);
+    assert.equal(pipeline.getJob(submitted.id, submitted.accessToken), null);
     const recoveredPipeline = new PetPipeline({
       dataDir,
       projectRoot,
@@ -71,11 +76,7 @@ test("subject pipeline keeps a generated Agent as a draft until My Agents regist
       removeBackground: async () => final,
     });
     await recoveredPipeline.init();
-    assert.equal(recoveredPipeline.getJob(submitted.id).status, "ready");
-    const registered = await recoveredPipeline.register(submitted.id);
-    assert.equal(registered.role, "萌化陪伴 Agent");
-    assert.deepEqual(registered.personality, ["温柔", "好奇", "陪伴"]);
-    assert.equal(recoveredPipeline.listAssets().length, 1);
+    assert.equal(recoveredPipeline.getJob(submitted.id, submitted.accessToken), null);
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
@@ -100,12 +101,12 @@ test("failed visual QA can retry from the persisted source without another uploa
       create: { width: 64, height: 64, channels: 3, background: "#b88963" },
     }).jpeg().toBuffer();
     const submitted = pipeline.submit(source, { filename: "pet.jpg", mime: "image/jpeg" });
-    const failed = await waitForJob(pipeline, submitted.id);
+    const failed = await waitForJob(pipeline, submitted.id, submitted.accessToken);
     assert.equal(failed.status, "failed");
     assert.match(failed.error, /more than one subject|canvas edge/);
 
-    await pipeline.retry(submitted.id);
-    const retried = await waitForJob(pipeline, submitted.id);
+    await pipeline.retry(submitted.id, submitted.accessToken);
+    const retried = await waitForJob(pipeline, submitted.id, submitted.accessToken);
     assert.equal(retried.status, "ready", retried.error);
   } finally {
     await rm(dataDir, { recursive: true, force: true });
@@ -119,6 +120,7 @@ test("GMI upload normalizes WebP and the prompt handles people, animals, objects
   const normalized = await normalizeGmiUpload(webp, "image/webp");
   assert.equal(normalized.mime, "image/png");
   assert.equal((await sharp(normalized.input).metadata()).format, "png");
+  assert.ok(petUploadLimits.mimeTypes.includes("image/heic"));
   assert.match(SUBJECT_STYLE_PROMPT, /person, an animal, or a physical object/);
   assert.match(SUBJECT_STYLE_PROMPT, /never default to an animal/);
   assert.match(SUBJECT_STYLE_PROMPT, /sole identity and shape reference/);

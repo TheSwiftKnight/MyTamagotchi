@@ -1,4 +1,4 @@
-const VERSION = "forkworld-v3";
+const VERSION = "forkworld-v4";
 const CACHE = `forkworld-${VERSION}`;
 const SHELL = [
   "/",

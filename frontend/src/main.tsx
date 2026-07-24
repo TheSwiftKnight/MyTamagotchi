@@ -9,7 +9,7 @@ const splash = document.getElementById("agentland-splash");
 const connectionLabel = document.getElementById("agentland-connection-label");
 if (splash) {
   const apiBase = (import.meta.env.VITE_WORLD_API_URL || "http://127.0.0.1:8787/api").replace(/\/$/, "");
-  const minimumDisplay = new Promise(resolve => window.setTimeout(resolve, 1500));
+  const minimumDisplay = new Promise(resolve => window.setTimeout(resolve, 5000));
   const networkReady = Promise.race([
     fetch(`${apiBase}/health`, { cache: "no-store" }).then(response => response.ok),
     new Promise<boolean>(resolve => window.setTimeout(() => resolve(false), 1800)),
@@ -37,7 +37,7 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
     }).catch(() => undefined);
 
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      const reloadKey = "forkworld.pwaReloaded.v2";
+      const reloadKey = "forkworld.pwaReloaded.v3";
       if (window.sessionStorage.getItem(reloadKey)) return;
       window.sessionStorage.setItem(reloadKey, "1");
       window.location.reload();

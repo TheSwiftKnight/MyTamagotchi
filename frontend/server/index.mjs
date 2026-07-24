@@ -40,7 +40,7 @@ function sendJson(response, status, payload) {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type,X-Pet-Name,X-File-Name",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
     "Cache-Control": "no-store",
   });
   response.end(JSON.stringify(payload));
@@ -50,7 +50,7 @@ function sendBinary(response, status, payload, contentType) {
   response.writeHead(status, {
     "Content-Type": contentType,
     "Access-Control-Allow-Origin": "*",
-    "Cache-Control": "public, max-age=31536000, immutable",
+    "Cache-Control": "private, no-store",
   });
   response.end(payload);
 }
@@ -91,13 +91,12 @@ const server = createServer(async (request, response) => {
         tick: engine.state.meta.tick,
         narrativeMode: llmConfig.enabled ? "llm-enabled" : "local",
         petPipeline: {
+          configured: Boolean(process.env.GMI_API_KEY),
+          storage: "temporary-private",
           stylize: `gmi:${process.env.GMI_SUBJECT_IMAGE_MODEL || process.env.GMI_PET_IMAGE_MODEL || "gpt-image-2-edit"}`,
           removeBackground: `gmi:${process.env.GMI_REMOVE_BG_MODEL || "bria-image-remove-background"}`,
         },
       });
-    }
-    if (request.method === "GET" && url.pathname === "/api/pets") {
-      return sendJson(response, 200, { assets: petPipeline.listAssets() });
     }
     if (request.method === "POST" && url.pathname === "/api/pets") {
       const mime = String(request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
@@ -109,26 +108,28 @@ const server = createServer(async (request, response) => {
       });
       return sendJson(response, 202, job);
     }
-    const petRegisterMatch = url.pathname.match(/^\/api\/pets\/(pet-[a-z0-9-]+)\/register$/);
-    if (request.method === "POST" && petRegisterMatch) {
-      return sendJson(response, 200, { asset: await petPipeline.register(petRegisterMatch[1]) });
-    }
     const petRetryMatch = url.pathname.match(/^\/api\/pets\/(pet-[a-z0-9-]+)\/retry$/);
     if (request.method === "POST" && petRetryMatch) {
-      return sendJson(response, 202, await petPipeline.retry(petRetryMatch[1]));
+      return sendJson(response, 202, await petPipeline.retry(petRetryMatch[1], url.searchParams.get("accessToken") || ""));
     }
     const petJobMatch = url.pathname.match(/^\/api\/pets\/(pet-[a-z0-9-]+)$/);
     if (request.method === "GET" && petJobMatch) {
-      const job = petPipeline.getJob(petJobMatch[1]);
+      const job = petPipeline.getJob(petJobMatch[1], url.searchParams.get("accessToken") || "");
       return job ? sendJson(response, 200, job) : sendJson(response, 404, { error: "Pet job not found" });
+    }
+    if (request.method === "DELETE" && petJobMatch) {
+      const released = await petPipeline.release(petJobMatch[1], url.searchParams.get("accessToken") || "");
+      return released
+        ? sendJson(response, 200, { ok: true })
+        : sendJson(response, 404, { error: "Pet job not found" });
     }
     const petFileMatch = url.pathname.match(/^\/api\/pets\/(pet-[a-z0-9-]+)\/files\/(source|clean|final)$/);
     if (request.method === "GET" && petFileMatch) {
-      const filePath = petPipeline.resolveFile(petFileMatch[1], petFileMatch[2]);
+      const filePath = petPipeline.resolveFile(petFileMatch[1], petFileMatch[2], url.searchParams.get("accessToken") || "");
       if (!filePath) return sendJson(response, 404, { error: "Pet image not found" });
       const payload = await readFile(filePath);
       const contentType = petFileMatch[2] === "source"
-        ? ({ ".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" }[path.extname(filePath)] || "application/octet-stream")
+        ? ({ ".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".heic": "image/heic", ".heif": "image/heif" }[path.extname(filePath)] || "application/octet-stream")
         : "image/png";
       return sendBinary(response, 200, payload, contentType);
     }

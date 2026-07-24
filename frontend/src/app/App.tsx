@@ -1787,7 +1787,7 @@ function CaptureScreen({ navigate, onGenerated }: { navigate: (s: Screen) => voi
     upload: "正在安全上传",
     stylize: "正在识别并萌化主体",
     "remove-background": "正在提取纯净轮廓",
-    register: "正在整理 Agent 档案",
+    localize: "正在准备本机 Agent",
     complete: "卡通伙伴已经生成",
     failed: "生成失败",
   };
@@ -1798,11 +1798,11 @@ function CaptureScreen({ navigate, onGenerated }: { navigate: (s: Screen) => voi
     previewUrl.current = URL.createObjectURL(file);
     setPreview(previewUrl.current);
     setError(null);
-    setJob({ id: "uploading", name: file.name, status: "queued", stage: "upload", progress: 4 });
+    setJob({ id: "uploading", accessToken: "", name: file.name, status: "queued", stage: "upload", progress: 4 });
     try {
       const submitted = await petApi.submit(file);
       setJob(submitted);
-      const asset = await waitForPet(submitted.id, setJob);
+      const asset = await waitForPet(submitted, setJob);
       onGenerated(asset);
       window.setTimeout(() => navigate("extract"), 480);
     } catch (caught) {
@@ -1815,9 +1815,9 @@ function CaptureScreen({ navigate, onGenerated }: { navigate: (s: Screen) => voi
     if (!job || job.id === "uploading") return;
     setError(null);
     try {
-      const retried = await petApi.retry(job.id);
+      const retried = await petApi.retry(job);
       setJob(retried);
-      const asset = await waitForPet(retried.id, setJob);
+      const asset = await waitForPet(retried, setJob);
       onGenerated(asset);
       window.setTimeout(() => navigate("extract"), 480);
     } catch (caught) {
@@ -1834,9 +1834,9 @@ function CaptureScreen({ navigate, onGenerated }: { navigate: (s: Screen) => voi
 
   return (
     <div className="flex flex-col h-full" style={{ background: "#17150F", color: "#FAF6EF" }}>
-      <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden
+      <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" hidden
         onChange={event => handleFile(event.target.files?.[0])}/>
-      <input ref={uploadInput} type="file" accept="image/jpeg,image/png,image/webp" hidden
+      <input ref={uploadInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" hidden
         onChange={event => handleFile(event.target.files?.[0])}/>
       <div className="flex items-center justify-between px-5 pt-9 pb-4">
         <button onClick={() => navigate("worldDock")} className="w-8 h-8 flex items-center justify-center rounded-full"
@@ -1945,11 +1945,11 @@ function CaptureScreen({ navigate, onGenerated }: { navigate: (s: Screen) => voi
                 borderRadius: 10, border: "1px solid rgba(255,255,255,.2)",
                 background: "rgba(255,255,255,.08)", color: "#FAF6EF", fontSize: "var(--ui-font-caption)",
               }}>
-                {job.id === "uploading" ? "重新连接并生成" : "使用已保存原图重新生成"}
+                {job.id === "uploading" ? "重新连接并生成" : "使用本次原图重新生成"}
               </button>
             )}
           </span>
-        ) : "🔒 原图只用于生成你的赛博伙伴，背景不会进入世界"}
+        ) : "🔒 原图仅在本次生成期间临时处理，完成后立即从服务器清除"}
       </p>
     </div>
   );
@@ -1959,19 +1959,11 @@ function CaptureScreen({ navigate, onGenerated }: { navigate: (s: Screen) => voi
 function ExtractScreen({ navigate, pet, onRegistered }: { navigate: (s: Screen) => void; pet: PetAsset | null; onRegistered: (asset: PetAsset) => void }) {
   const [mode, setMode] = useState<"erase" | "restore">("erase");
   const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
-  const addToAgents = async () => {
+  const addToAgents = () => {
     if (!pet || adding) return;
     setAdding(true);
-    setAddError(null);
-    try {
-      const registered = await petApi.register(pet.id);
-      onRegistered(registered);
-      navigate("agentGallery");
-    } catch (caught) {
-      setAddError(caught instanceof Error ? caught.message : "添加失败，请重试");
-      setAdding(false);
-    }
+    onRegistered(pet);
+    navigate("agentGallery");
   };
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: "#F5F0E8", fontFamily: "Press Start 2P,monospace" }}>
@@ -2088,7 +2080,6 @@ function ExtractScreen({ navigate, pet, onRegistered }: { navigate: (s: Screen) 
             {adding ? "正在添加…" : "添加到 My Agents"}
           </span>
         </button>
-        {addError && <p className="text-center mt-2" style={{ fontSize: "var(--ui-font-body)", color: "#E8634A" }}>{addError}</p>}
       </div>
     </div>
   );
@@ -4384,7 +4375,7 @@ function EverydayTownScreen({ navigate, sceneControl, capturedPets }: { navigate
             wanderOffsets={wanderOffsets}
           />
 
-          {/* Captured cyber pets are persisted by the backend and enter the live town here. */}
+          {/* Captured cyber pets live only in this page session and enter the live town here. */}
           {capturedPets.slice(0, 8).map((pet, index) => {
             const defaultPosition = {
               x: TOWN_PANEL_W + 56 + (index % 4) * 88,
@@ -5755,13 +5746,14 @@ function AgentArchiveTabs({ active, onChange }: {
   );
 }
 
-function AgentGalleryScreen({ navigate, section, onSectionChange, drafts, onEditAgent, onOpenSetting, backendAgents, onEditBackendAgent }: {
+function AgentGalleryScreen({ navigate, section, onSectionChange, drafts, onEditAgent, onOpenSetting, capturedPets, backendAgents, onEditBackendAgent }: {
   navigate: (s: Screen) => void;
   section: "agents" | "objects";
   onSectionChange: (section: AgentArchiveSection) => void;
   drafts: Record<string, AgentEditorDraft>;
   onEditAgent: (agentId: string) => void;
   onOpenSetting: (category: CharacterStyleCategory, type?: WorldStyleSkillAssetType) => void;
+  capturedPets: PetAsset[];
   backendAgents: BackendAgent[];
   onEditBackendAgent: (agent: BackendAgent) => void;
 }) {
@@ -5820,6 +5812,27 @@ function AgentGalleryScreen({ navigate, section, onSectionChange, drafts, onEdit
           </div>
           <div className="grid grid-cols-2 gap-3 pb-4">
           {agentStyle === "dailySpirits" ? <>
+            {capturedPets.map(pet => (
+              <button key={pet.id} onClick={() => navigate("everydayTown")}
+                aria-label={`查看本机 Agent ${pet.name}`}
+                className="rounded-2xl overflow-hidden text-left"
+                style={{ background: "#FAF6EF", border: "1.5px solid rgba(28,25,17,0.1)", boxShadow: "0 1px 6px rgba(28,25,17,0.05)" }}>
+                <div className="flex items-center justify-center relative" style={{ height: 90, background: "#E8634A12" }}>
+                  <motion.img src={pet.finalUrl} alt={pet.name} animate={{ y: [0, -3, 0] }}
+                    transition={{ duration: 2.4, repeat: Infinity }}
+                    style={{ width: 82, height: 82, objectFit: "contain" }}/>
+                  <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded-full"
+                    style={{ background: "#E8634A20", color: "#E8634A", border: "1px solid #E8634A40", fontSize: "var(--ui-font-caption)" }}>
+                    本机 AGENT
+                  </div>
+                </div>
+                <div className="p-2.5">
+                  <p style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-heading)", fontWeight: 700, color: "#1C1911", lineHeight: 1.1 }}>{pet.name}</p>
+                  <p style={{ fontSize: "var(--ui-font-body)", color: "#E8634A", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>{pet.role}</p>
+                  <p style={{ fontSize: "var(--ui-font-caption)", color: "#8E867A", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>仅当前手机 · 刷新即清空</p>
+                </div>
+              </button>
+            ))}
             {backendAgents.map(agent => {
               const accent = agentAccent(agent.id);
               return (
@@ -5865,7 +5878,7 @@ function AgentGalleryScreen({ navigate, section, onSectionChange, drafts, onEdit
               </button>
               );
             })}
-            {backendAgents.length === 0 && (
+            {capturedPets.length === 0 && backendAgents.length === 0 && (
               <p style={{ color: "#8E867A", fontSize: "var(--ui-font-caption)", gridColumn: "1 / -1", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
                 还没有日常精灵——去 Capture 拍一张照片吧！
               </p>
@@ -8601,9 +8614,6 @@ export default function App() {
 
   useEffect(() => {
     refreshBackendAgents();
-    petApi.list().then(setCapturedPets).catch(() => {
-      // The core world remains available if the optional media pipeline is offline.
-    });
   }, []);
 
   const prepareCapturedPet = (asset: PetAsset) => {
@@ -8613,7 +8623,6 @@ export default function App() {
   const registerCapturedPet = (asset: PetAsset) => {
     setLatestCapturedPet(asset);
     setCapturedPets(current => [asset, ...current.filter(item => item.id !== asset.id)]);
-    refreshBackendAgents(); // 注册即建档：后端已把它写进日常精灵
   };
 
   useEffect(() => {
@@ -8848,6 +8857,7 @@ export default function App() {
                   drafts={agentDrafts}
                   onEditAgent={openAgentEditor}
                   onOpenSetting={openCharacterSettings}
+                  capturedPets={capturedPets}
                   backendAgents={backendAgents}
                   onEditBackendAgent={openBackendAgentEditor}
                 />
