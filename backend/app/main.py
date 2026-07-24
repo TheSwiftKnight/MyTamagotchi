@@ -1101,6 +1101,86 @@ def world_reset(session: Session = Depends(get_session)):
     return world.build_state(session)
 
 
+# ---------- 大屏世界注册表 ----------
+
+BIGSCREEN_REGISTRY = (Path(__file__).resolve().parents[2]
+                      / "frontends" / "bigscreen" / "data" / "worlds.json")
+
+
+@app.get("/api/worlds")
+def list_worlds(session: Session = Depends(get_session)):
+    """大屏世界注册表，与 frontends/bigscreen/data/worlds.json 同构。
+
+    大屏经 js/shared/data.js 拉这个接口，不可达时回退那份静态文件——所以本接口
+    只负责把「住户」换成实时 agent，**地图几何仍沿用静态文件里的 region /
+    slot_tiles**：六环版不需要几何，但 global_phaser.html 需要，复用模板才能
+    让两个大屏版本都不坏。
+
+    一个 agent = 一个世界：演示时有人用手机捕获新宠物，大屏上会立刻多出一栋
+    亮灯的房子；agent 多于模板区块时循环取用，不会漏人。
+    """
+    try:
+        template = json.loads(BIGSCREEN_REGISTRY.read_text(encoding="utf-8"))
+    except Exception:
+        template = {}
+    slots = template.get("worlds") or []
+    agents = session.exec(select(Agent).order_by(Agent.id)).all()
+
+    worlds = []
+    for i, a in enumerate(agents):
+        owner = session.get(User, a.owner_id)
+        skills = session.exec(select(Skill).where(Skill.agent_id == a.id)).all()
+        profile = _profile_dict(a)
+        slot = slots[i % len(slots)] if slots else {}
+        worlds.append({
+            "world_id": f"w_agent{a.id}",
+            "owner": owner.username if owner else "?",
+            "character": a.name,
+            "agent_kind": a.category,
+            "image": a.image,
+            "region_sector": slot.get("region_sector", ""),
+            "region": slot.get("region", {}),
+            "slot_tiles": slot.get("slot_tiles", {}),
+            "world": {
+                "world_name": profile.get("world_name") or f"{a.name}的小世界",
+                "climate": profile.get("personality") or a.trait,
+                "temperament": profile.get("goal") or f"陪着主人做一只{a.category}",
+                "landmarks": [
+                    {"type": "skill", "name": s.name, "from": f"技能:{s.name}"}
+                    for s in skills
+                ],
+            },
+        })
+
+    # 互访 = 二维码配对：配过的两个世界之间连一条线，游记用契合度结论。
+    # _pair_latest 对同一次配对存了两个键（a 和 b），故只取 key==ids[0] 那条去重
+    visits = []
+    for i, (key, rec) in enumerate(_pair_latest.items()):
+        ids = [a.get("id") for a in rec.get("agents", [])]
+        if len(ids) != 2:
+            continue
+        frm, to = f"w_agent{ids[0]}", f"w_agent{ids[1]}"
+        if frm == to or key != ids[0]:      # 每对只出一条（用较小方那次）
+            continue
+        res = rec.get("resonance") or {}
+        visits.append({
+            "visit_id": f"v_pair{i:03d}",
+            "from": frm, "to": to,
+            "bubbles": [{"slot": n, "text": l.get("text", "")}
+                        for n, l in enumerate(rec.get("lines", [])[:3])],
+            "travelogue": res.get("reason", ""),
+            "resonance": res.get("score"),
+        })
+
+    return {
+        "map": template.get("map", {"maze_name": "the_ville", "tile_px": 32,
+                                    "width": 140, "height": 100}),
+        "worlds": worlds,
+        "visits": visits,
+        "source": "fastapi-live",
+    }
+
+
 @app.get("/api/health")
 def health(session: Session = Depends(get_session)):
     meta = world.get_meta(session)

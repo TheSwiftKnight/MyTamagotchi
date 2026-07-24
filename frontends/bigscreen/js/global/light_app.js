@@ -34,10 +34,17 @@
       };
     })
   );
-  // 现有 Agent 各入住一圈；新增世界可以继续按空房顺序分配。
-  registry.worlds.slice(0, RINGS.length).forEach((world, residentIndex) => {
-    const ring = RINGS[residentIndex];
-    const houseIndex = HOUSES.findIndex((house) => house.ringId === ring.id && house.slot === residentIndex * 3 % ring.capacity);
+  // 全部 Agent 依次绕环入住：原先是 slice(0, RINGS.length) 只放前 6 个，
+  // 接上后端实时注册表后 agent 会超过 6 个（演示时观众每捕获一只就多一个），
+  // 截断会让新住户永远不出现，所以改成轮流绕圈、撞位就顺延到下一间空房。
+  registry.worlds.forEach((world, residentIndex) => {
+    const ring = RINGS[residentIndex % RINGS.length];
+    const lap = Math.floor(residentIndex / RINGS.length);      // 第几圈绕回来
+    const slot = (residentIndex * 3 + lap * 5) % ring.capacity;
+    const free = (house) => !Number.isInteger(house.residentIndex);
+    let houseIndex = HOUSES.findIndex((h) => h.ringId === ring.id && h.slot === slot && free(h));
+    if (houseIndex < 0) houseIndex = HOUSES.findIndex((h) => h.ringId === ring.id && free(h));
+    if (houseIndex < 0) houseIndex = HOUSES.findIndex(free);   // 该环满了就用任意空房
     if (houseIndex >= 0) HOUSES[houseIndex].residentIndex = residentIndex;
   });
   const occupiedCount = HOUSES.filter((house) => Number.isInteger(house.residentIndex)).length;
