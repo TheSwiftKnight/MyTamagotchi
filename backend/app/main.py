@@ -413,6 +413,50 @@ class InvokeIn(BaseModel):
     inputs: dict
 
 
+class SkillPatchIn(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+@app.patch("/api/agents/{agent_id}/skills/{skill_id}")
+async def edit_skill(agent_id: int, skill_id: int, body: SkillPatchIn,
+                     session: Session = Depends(get_session)):
+    """改技能的名字与说明。
+
+    只开放 name/description：code / def_id / manifest 是可执行定义，
+    从前端随手改会让 invoke 直接崩，要换实现请走 /api/skills/forge 重铸。
+    """
+    skill = session.get(Skill, skill_id)
+    if not skill or skill.agent_id != agent_id:
+        raise HTTPException(404, "skill not found")
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(422, "技能名不能为空")
+        skill.name = name[:40]
+    if body.description is not None:
+        skill.description = body.description.strip()[:200]
+    session.add(skill)
+    await commit_with_retry(session)
+    return {"id": skill.id, "name": skill.name, "description": skill.description,
+            "source": skill.source, "kind": skill.kind}
+
+
+@app.delete("/api/agents/{agent_id}/skills/{skill_id}")
+async def delete_skill(agent_id: int, skill_id: int,
+                       session: Session = Depends(get_session)):
+    """删掉 agent 身上的一个技能，并在它记忆里留一笔（人设会记得自己忘了什么）。"""
+    agent = session.get(Agent, agent_id)
+    skill = session.get(Skill, skill_id)
+    if not agent or not skill or skill.agent_id != agent_id:
+        raise HTTPException(404, "skill not found")
+    name = skill.name
+    session.delete(skill)
+    session.add(Memory(agent_id=agent_id, kind="skill", content=f"我把技能「{name}」忘掉了。"))
+    await commit_with_retry(session)
+    return {"ok": True, "removed": name}
+
+
 @app.post("/api/agents/{agent_id}/skills/{skill_id}/invoke")
 async def invoke_skill(agent_id: int, skill_id: int, body: InvokeIn,
                        session: Session = Depends(get_session)):

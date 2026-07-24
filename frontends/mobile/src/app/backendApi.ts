@@ -180,4 +180,15 @@ export const backendApi = {
       method: "POST",
       body: JSON.stringify({ inputs }),
     }),
+  // 只改 name/description：code/def_id/manifest 是可执行定义，改坏会让 invoke 崩，
+  // 换实现要走 forgeSkill 重铸
+  editSkill: (agentId: number, skillId: number, patch: { name?: string; description?: string }) =>
+    req<{ id: number; name: string; description: string; source: string; kind: string }>(
+      `/agents/${agentId}/skills/${skillId}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+    ),
+  deleteSkill: (agentId: number, skillId: number) =>
+    req<{ ok: boolean; removed: string }>(`/agents/${agentId}/skills/${skillId}`, {
+      method: "DELETE",
+    }),
 };

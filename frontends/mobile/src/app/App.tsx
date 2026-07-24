@@ -5267,6 +5267,41 @@ function AgentsDirectoryScreen({ sceneControl }: { sceneControl: React.ReactNode
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<BackendAgentDetail | null>(null);
+  // —— 技能编辑：点技能芯片就地改名/改说明/删除 ——
+  const [editingSkillId, setEditingSkillId] = useState<number | null>(null);
+  const [skillDraft, setSkillDraft] = useState({ name: "", description: "" });
+  const [skillBusy, setSkillBusy] = useState(false);
+  const [skillError, setSkillError] = useState<string | null>(null);
+
+  const reloadDetail = (agentId: number) =>
+    backendApi.agent(agentId).then(setDetail).catch(() => {});
+
+  const closeSkillEditor = () => { setEditingSkillId(null); setSkillError(null); };
+
+  const saveSkill = async (agentId: number, skillId: number) => {
+    if (!skillDraft.name.trim()) { setSkillError("技能名不能为空"); return; }
+    setSkillBusy(true); setSkillError(null);
+    try {
+      await backendApi.editSkill(agentId, skillId, {
+        name: skillDraft.name.trim(), description: skillDraft.description.trim(),
+      });
+      await reloadDetail(agentId);
+      closeSkillEditor();
+    } catch (caught) {
+      setSkillError(caught instanceof Error ? caught.message : "保存失败");
+    } finally { setSkillBusy(false); }
+  };
+
+  const removeSkill = async (agentId: number, skillId: number) => {
+    setSkillBusy(true); setSkillError(null);
+    try {
+      await backendApi.deleteSkill(agentId, skillId);
+      await reloadDetail(agentId);
+      closeSkillEditor();
+    } catch (caught) {
+      setSkillError(caught instanceof Error ? caught.message : "删除失败");
+    } finally { setSkillBusy(false); }
+  };
 
   useEffect(() => {
     let active = true;
@@ -5339,17 +5374,69 @@ function AgentsDirectoryScreen({ sceneControl }: { sceneControl: React.ReactNode
               <p style={{ color: "#6F685D", fontSize: "var(--ui-font-caption)", lineHeight: 1.6, marginTop: 8 }}>{agent.trait}</p>
               {expanded && (
                 <div className="mt-2 pt-2" style={{ borderTop: "1px dashed rgba(28,25,17,.14)" }}>
-                  <p style={{ color, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>SKILLS</p>
+                  <p style={{ color, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>
+                    SKILLS <span style={{ color: "#8E867A" }}>· 点技能可改名 / 删除</span>
+                  </p>
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     {detail?.skills.length
                       ? detail.skills.map(skill => (
-                        <span key={skill.id} className="rounded-full px-2 py-1"
-                          style={{ color, background: `${color}12`, border: `1px solid ${color}30`, fontSize: "var(--ui-font-micro)" }}>
+                        <button key={skill.id} type="button" className="rounded-full px-2 py-1"
+                          onClick={event => {
+                            event.stopPropagation();
+                            setEditingSkillId(skill.id);
+                            setSkillDraft({ name: skill.name, description: skill.description || "" });
+                            setSkillError(null);
+                          }}
+                          style={{
+                            color, fontSize: "var(--ui-font-micro)",
+                            background: editingSkillId === skill.id ? `${color}28` : `${color}12`,
+                            border: `1px solid ${color}${editingSkillId === skill.id ? "80" : "30"}`,
+                          }}>
                           {skill.name}
-                        </span>
+                        </button>
                       ))
                       : <span style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)" }}>{detail ? "暂无技能" : "加载中…"}</span>}
                   </div>
+
+                  {editingSkillId != null && detail?.skills.some(skill => skill.id === editingSkillId) && (
+                    <div className="mt-2 rounded-xl p-2.5" onClick={event => event.stopPropagation()}
+                      style={{ background: "#FFFCF6", border: `1px solid ${color}40` }}>
+                      <input value={skillDraft.name} disabled={skillBusy}
+                        onChange={event => setSkillDraft(draft => ({ ...draft, name: event.target.value }))}
+                        placeholder="技能名"
+                        className="w-full rounded-lg px-2 py-1.5"
+                        style={{ border: "1px solid rgba(28,25,17,.18)", background: "#F5F0E8",
+                          fontSize: "var(--ui-font-caption)", color: "#1C1911" }} />
+                      <textarea value={skillDraft.description} disabled={skillBusy} rows={2}
+                        onChange={event => setSkillDraft(draft => ({ ...draft, description: event.target.value }))}
+                        placeholder="这个技能做什么"
+                        className="w-full rounded-lg px-2 py-1.5 mt-1.5"
+                        style={{ border: "1px solid rgba(28,25,17,.18)", background: "#F5F0E8",
+                          fontSize: "var(--ui-font-micro)", color: "#1C1911", resize: "none" }} />
+                      {skillError && (
+                        <p style={{ color: "#C0442C", fontSize: "var(--ui-font-micro)", marginTop: 4 }}>{skillError}</p>
+                      )}
+                      <div className="flex gap-1.5 mt-2">
+                        <button type="button" disabled={skillBusy}
+                          onClick={() => saveSkill(agent.id, editingSkillId)}
+                          className="rounded-lg px-3 py-1.5"
+                          style={{ background: color, color: "#FFFCF6", fontSize: "var(--ui-font-micro)" }}>
+                          {skillBusy ? "保存中…" : "保存"}
+                        </button>
+                        <button type="button" disabled={skillBusy} onClick={closeSkillEditor}
+                          className="rounded-lg px-3 py-1.5"
+                          style={{ border: "1px solid rgba(28,25,17,.18)", fontSize: "var(--ui-font-micro)", color: "#6F685D" }}>
+                          取消
+                        </button>
+                        <button type="button" disabled={skillBusy}
+                          onClick={() => removeSkill(agent.id, editingSkillId)}
+                          className="rounded-lg px-3 py-1.5 ml-auto"
+                          style={{ border: "1px solid #C0442C40", color: "#C0442C", fontSize: "var(--ui-font-micro)" }}>
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {detail && detail.memories.length > 0 && (
                     <div className="mt-2">
                       <p style={{ color, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>最近记忆</p>
