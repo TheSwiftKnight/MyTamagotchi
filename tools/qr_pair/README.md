@@ -55,6 +55,17 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 ⚠️ 依赖锁 `opencv-contrib-python==4.11.0.86`：OpenCV 5.0 的 wechat_qrcode 模型加载 Python 绑定是坏的。
 
+## 设备二维码展示服务
+
+```bash
+.venv/bin/python qr_server.py        # 0.0.0.0:8600，启动时打印本机局域网地址
+```
+
+- `http://<IP>:8600/` 选 agent（卡片列表）；`/qr/<agent_id>` 全屏二维码页；`/qr/<agent_id>.png` 纯图
+- 二维码页每 2s 轮询 `GET /api/pair/latest/<agent_id>`，**配对成功自动翻转为结果页**
+  （契合度数字滚动 + 相遇对话 + 值得聊的那件事 + 技能互学徽章 + 震动反馈）
+- 后端必须绑 `0.0.0.0`（手机要直连 `:8000` 轮询）：`uvicorn app.main:app --host 0.0.0.0 --port 8000`
+
 ## 后端接口
 
 `POST /api/pair` `{"payload_a": "FW1:1", "payload_b": "FW1:4", "source": "qr_camera"}`

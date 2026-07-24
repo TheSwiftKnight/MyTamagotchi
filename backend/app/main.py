@@ -448,6 +448,7 @@ async def plaza_converse(session: Session = Depends(get_session)):
 QR_PAIR_PREFIX = "FW1:"          # 与 tools/qr_pair/config.py 保持一致
 PAIR_COOLDOWN_SEC = 60.0
 _pair_cache: dict[frozenset, tuple[float, dict]] = {}
+_pair_latest: dict[int, dict] = {}   # agent_id → 最近一次配对结果（手机 QR 页轮询用）
 
 
 class PairIn(BaseModel):
@@ -566,7 +567,14 @@ async def pair_agents(body: PairIn, session: Session = Depends(get_session)):
         "cached": False,
     }
     _pair_cache[key] = (ts, result)
+    _pair_latest[id_a] = _pair_latest[id_b] = {**result, "ts": ts}
     return result
+
+
+@app.get("/api/pair/latest/{agent_id}")
+def pair_latest(agent_id: int):
+    """某 agent 最近一次配对结果（QR 展示页轮询，配对成功后翻转为结果页）。"""
+    return _pair_latest.get(agent_id) or {}
 
 
 # ---------- agent 编辑（identity → 加入世界） ----------
