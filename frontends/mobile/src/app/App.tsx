@@ -1647,7 +1647,18 @@ function WorldDockScreen({
   myAgents: BackendAgent[];
 }) {
   // World Residents / 头部统计要的是「世界里全部的 agent」，不只是我的那几个
-  const { agents: allAgents } = useAgentDetails();
+  const { agents: allAgents, details, skills, loaded: statsLoaded } = useAgentDetails();
+  // 生产站头部是「N 位智能体 · N 种skills · N 段记忆 · N 位访客」四项。
+  // 智能体数取 /api/agents 全量；skill 种类取 /api/skills 去重后的技能名；
+  // 记忆总数是每个 agent 的 memories 条数之和；访客 = 我以外的 owner 数。
+  const worldStats = useMemo(() => ({
+    agentCount: allAgents.length,
+    skillKinds: new Set(skills.map(skill => skill.name)).size,
+    memoryTotal: Object.values(details).reduce((total, detail) => total + detail.memories.length, 0),
+    visitorCount: new Set(
+      allAgents.filter(agent => agent.owner_id !== ME_USER_ID).map(agent => agent.owner_id),
+    ).size,
+  }), [allAgents, details, skills]);
   const plazaCount = myAgents.filter(agent => agent.location === "plaza").length;
   const worldCards: { key: ThemedWorldKey; screen: Screen; houseId: string }[] = [
     { key: "fitness", screen: "everydayTown", houseId: "H04" },
@@ -1666,7 +1677,9 @@ function WorldDockScreen({
             ForkWorld
           </h1>
           <p style={{ fontSize: "var(--ui-font-label)", color: "#7A7468", whiteSpace: "nowrap", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
-            {myAgents.length} 位我的智能体 · {plazaCount} 位在广场 · 3 个专属世界
+            {statsLoaded
+              ? `${worldStats.agentCount} 位智能体 · ${worldStats.skillKinds} 种skills · ${worldStats.memoryTotal} 段记忆 · ${worldStats.visitorCount} 位访客`
+              : `${myAgents.length} 位我的智能体 · ${plazaCount} 位在广场 · 正在汇总世界统计…`}
           </p>
         </div>
       </div>
