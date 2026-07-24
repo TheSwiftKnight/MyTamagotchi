@@ -79,7 +79,7 @@ const STAGE_WIDTH = 3344;
 const STAGE_HEIGHT = 1882;
 const MIN_SCALE = 0.22;
 const MAX_SCALE = 2.2;
-const DEFAULT_PLAZA_SCALE = 0.36;
+const DEFAULT_PLAZA_SCALE = 0.31;
 const PLAZA_CENTER = { x: STAGE_WIDTH / 2, y: STAGE_HEIGHT / 2 };
 const PLAZA_FOCUS = {
   x: PLAZA_CENTER.x - 470,
@@ -167,7 +167,7 @@ export function ConcentricPlazaMap({
   focusRequest = 0,
 }: ConcentricPlazaMapProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<MapView>({ scale: 0.4, x: 0, y: 0 });
+  const viewRef = useRef<MapView>({ scale: DEFAULT_PLAZA_SCALE, x: 0, y: 0 });
   const viewportSizeRef = useRef({ width: 0, height: 0 });
   const pointersRef = useRef(new Map<number, PointerPoint>());
   const gestureRef = useRef<ReturnType<typeof getGesture>>(null);
@@ -230,11 +230,12 @@ export function ConcentricPlazaMap({
         Math.min((width - 20) / PLAZA_FOCUS.width, (height - 20) / PLAZA_FOCUS.height),
       ),
     );
-    const scale = width < 900 ? Math.max(DEFAULT_PLAZA_SCALE, fittedScale) : fittedScale;
+    const compactView = width < 900;
+    const scale = compactView ? DEFAULT_PLAZA_SCALE : fittedScale;
     commitView({
       scale,
-      x: (width - PLAZA_FOCUS.width * scale) / 2 - PLAZA_FOCUS.x * scale,
-      y: (height - PLAZA_FOCUS.height * scale) / 2 - PLAZA_FOCUS.y * scale,
+      x: width / 2 - PLAZA_CENTER.x * scale + (compactView ? width * 0.22 : 0),
+      y: height / 2 - PLAZA_CENTER.y * scale - (compactView ? height * 0.05 : 0),
     });
   }, [commitView]);
 
