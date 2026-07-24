@@ -1774,7 +1774,8 @@ function CaptureScreen({
     previewUrl.current = URL.createObjectURL(file);
     setPreview(previewUrl.current);
     setError(null);
-    setJob({ id: "uploading", name: file.name, status: "queued", stage: "upload", progress: 4 });
+    // accessToken 要等 petApi.submit 返回才有，占位 job 只是为了立刻显示进度条
+    setJob({ id: "uploading", accessToken: "", name: file.name, status: "queued", stage: "upload", progress: 4 });
     try {
       const submitted = await petApi.submit(file);
       setJob(submitted);
@@ -2717,7 +2718,7 @@ function PlaceInWorldScreen({ navigate, profile, draft, onChange, editing, onDon
 type AgentInfo = {
   name: string; role: string; color: string;
   traits: string[]; mood: string; compat: { name: string; score: number; color: string }[];
-  AgentSVG: () => JSX.Element;
+  AgentSVG: () => React.JSX.Element;
 };
 
 const AGENT_DATA: AgentInfo[] = [
