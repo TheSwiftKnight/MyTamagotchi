@@ -4,8 +4,9 @@
   height: 100%;
   min-height: 410px;
   overflow: hidden;
+  overflow: clip;
   color: #34352f;
-  background: #e9e4d8;
+  background: #e9e1cd;
   border: 1px solid rgba(75, 73, 65, .2);
   border-radius: 18px;
   box-shadow: inset 0 0 40px rgba(76, 68, 53, .08);
@@ -31,13 +32,12 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 1672px;
-  height: 941px;
+  width: 3344px;
+  height: 1882px;
   transform-origin: 0 0;
   will-change: transform;
 }
 
-.concentric-plaza-map__art,
 .concentric-plaza-map__vignette {
   position: absolute;
   inset: 0;
@@ -47,49 +47,77 @@
 }
 
 .concentric-plaza-map__art {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   display: block;
-  object-fit: cover;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
   user-select: none;
 }
 
+.concentric-plaza-map__art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .concentric-plaza-map__vignette {
+  z-index: 2;
   background: radial-gradient(circle, transparent 48%, rgba(76, 68, 53, .1));
 }
 
 .concentric-plaza-map__house {
   position: absolute;
+  z-index: 4;
   padding: 0;
   background: transparent;
   border: 2px solid transparent;
-  border-radius: 12px;
+  border-radius: 50%;
   cursor: pointer;
   translate: -50% -50%;
 }
 
+.concentric-plaza-map__house::before {
+  position: absolute;
+  inset: -6px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
 .concentric-plaza-map__house::after {
   position: absolute;
-  inset: 3px;
-  border: 1px dashed transparent;
-  border-radius: 9px;
+  top: 3px;
+  right: 1px;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
+  background: #aaa69c;
+  border: 1px solid rgba(255, 255, 255, .94);
+  border-radius: 50%;
   content: "";
+  opacity: .68;
 }
 
 .concentric-plaza-map__house:hover,
 .concentric-plaza-map__house:focus-visible {
-  background: color-mix(in srgb, var(--house-color) 12%, rgba(250, 247, 239, .25));
-  border-color: color-mix(in srgb, var(--house-color) 64%, #615d54);
+  z-index: 9;
+  background: color-mix(in srgb, var(--house-color) 10%, rgba(250, 247, 239, .22));
+  border-color: color-mix(in srgb, var(--house-color) 58%, #615d54);
   outline: none;
-}
-
-.concentric-plaza-map__house:hover::after,
-.concentric-plaza-map__house:focus-visible::after {
-  border-color: rgba(250, 247, 239, .94);
 }
 
 .concentric-plaza-map__house span {
   position: absolute;
   top: calc(100% + 4px);
   left: 50%;
+  z-index: 4;
   padding: 3px 7px;
   color: #68645b;
   background: rgba(250, 247, 239, .94);
@@ -103,21 +131,36 @@
 }
 
 .concentric-plaza-map__house:hover span,
-.concentric-plaza-map__house:focus-visible span {
+.concentric-plaza-map__house:focus-visible span,
+.concentric-plaza-map__house.is-active span {
   opacity: 1;
 }
 
-.concentric-plaza-map__house.is-selectable span {
+.concentric-plaza-map__house.is-occupied::after,
+.concentric-plaza-map__house.is-featured::after,
+.concentric-plaza-map__house.is-user-world::after {
+  background: var(--house-color);
   opacity: 1;
+}
+
+.concentric-plaza-map__house.is-featured {
+  z-index: 7;
+}
+
+.concentric-plaza-map__house.is-featured::before {
+  border-color: var(--house-color);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--house-color) 52%, transparent);
+  opacity: .9;
+  animation: concentricFeaturedHouse 1.8s ease-in-out infinite alternate;
 }
 
 .concentric-plaza-map__house.is-selectable {
-  background: rgba(250, 247, 239, .28);
-  border-color: #e8634a;
-  box-shadow:
-    0 0 0 5px rgba(232, 99, 74, .18),
-    0 0 24px rgba(232, 99, 74, .35);
-  animation: concentricSelectableHouse 1.35s ease-in-out infinite alternate;
+  border-color: rgba(232, 99, 74, .42);
+}
+
+.concentric-plaza-map__house.is-selectable::after {
+  background: #e8634a;
+  opacity: 1;
 }
 
 .concentric-plaza-map__learning-links {
@@ -141,18 +184,18 @@
 
 .concentric-plaza-map__learning-scene {
   position: absolute;
-  top: 470px;
-  left: 836px;
+  top: 941px;
+  left: 1672px;
   z-index: 7;
-  width: 390px;
-  height: 260px;
+  width: 330px;
+  height: 220px;
   pointer-events: none;
   transform: translate(-50%, -50%);
 }
 
 .concentric-plaza-map__learning-scene::before {
   position: absolute;
-  inset: 66px 90px 34px;
+  inset: 56px 70px 30px;
   background: radial-gradient(ellipse, rgba(250, 247, 239, .84) 0%, rgba(250, 247, 239, .35) 52%, transparent 72%);
   border-bottom: 2px solid rgba(75, 73, 65, .22);
   border-radius: 50%;
@@ -161,11 +204,11 @@
 
 .concentric-plaza-map__dachshund {
   position: absolute;
-  top: 82px;
+  top: 72px;
   left: 50%;
   z-index: 3;
   display: grid;
-  width: 152px;
+  width: 112px;
   padding: 0;
   justify-items: center;
   color: #5e4c3d;
@@ -179,8 +222,8 @@
 .concentric-plaza-map__dachshund img {
   position: relative;
   z-index: 2;
-  width: 124px;
-  height: 82px;
+  width: 90px;
+  height: 60px;
   object-fit: contain;
   filter: drop-shadow(0 8px 3px rgba(28, 25, 17, .16));
   animation: concentricDottiBreathe 1.8s ease-in-out infinite alternate;
@@ -191,7 +234,7 @@
   z-index: 3;
   display: flex;
   margin-top: -4px;
-  padding: 5px 9px;
+  padding: 4px 7px;
   align-items: center;
   gap: 7px;
   background: rgba(250, 247, 239, .94);
@@ -201,21 +244,21 @@
 }
 
 .concentric-plaza-map__dachshund strong {
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .concentric-plaza-map__dachshund small {
   color: #8a745f;
-  font-size: 9px;
+  font-size: 8px;
 }
 
 .concentric-plaza-map__dachshund-pulse {
   position: absolute;
-  top: 29px;
+  top: 21px;
   left: 50%;
   z-index: 1;
-  width: 92px;
-  height: 92px;
+  width: 70px;
+  height: 70px;
   background: rgba(232, 99, 74, .12);
   border: 2px solid rgba(232, 99, 74, .35);
   border-radius: 50%;
@@ -223,42 +266,28 @@
   transform: translateX(-50%);
 }
 
-.concentric-plaza-map__converse {
-  position: absolute;
-  z-index: 7;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-}
-
-.concentric-plaza-map__converse .concentric-plaza-map__dialogue.is-npc {
-  top: auto;
-  bottom: 66px;
-  left: -106px;
-}
-
 .concentric-plaza-map__dialogue {
   position: absolute;
   z-index: 6;
-  width: 212px;
-  padding: 10px 12px;
+  width: 144px;
+  padding: 7px 9px;
   color: #34352f;
   background: rgba(255, 253, 248, .96);
   border: 2px solid rgba(75, 73, 65, .2);
-  border-radius: 15px;
-  box-shadow: 0 7px 0 rgba(75, 73, 65, .09);
+  border-radius: 13px;
+  box-shadow: 0 5px 0 rgba(75, 73, 65, .09);
   animation: concentricDialogueIn 2.85s ease both;
 }
 
 .concentric-plaza-map__dialogue.is-npc {
-  top: -10px;
-  left: -104px;
+  top: 8px;
+  left: 8px;
   border-color: rgba(74, 127, 165, .52);
 }
 
 .concentric-plaza-map__dialogue.is-dotti {
-  right: -118px;
-  bottom: -8px;
+  right: 8px;
+  bottom: 8px;
   border-color: rgba(232, 99, 74, .58);
   animation-delay: .32s;
 }
@@ -285,21 +314,21 @@
 }
 
 .concentric-plaza-map__dialogue span {
-  font-size: 10px;
+  font-size: 8px;
   letter-spacing: .3px;
 }
 
 .concentric-plaza-map__dialogue p {
   margin: 5px 0 0;
   font-family: system-ui, sans-serif;
-  font-size: 13px;
+  font-size: 10px;
   line-height: 1.45;
 }
 
 .concentric-plaza-map__member {
   position: absolute;
   z-index: 5;
-  width: 118px;
+  width: 86px;
   padding: 0;
   color: var(--member-color);
   background: transparent;
@@ -356,8 +385,8 @@
 
 .concentric-plaza-map__member-art {
   display: grid;
-  width: 86px;
-  height: 86px;
+  width: 60px;
+  height: 60px;
   place-items: center;
   filter: drop-shadow(0 6px 2px rgba(28, 25, 17, .14));
 }
@@ -365,16 +394,16 @@
 .concentric-plaza-map__member-art > svg,
 .concentric-plaza-map__member-art > img {
   width: auto;
-  max-width: 82px;
+  max-width: 56px;
   height: auto;
-  max-height: 82px;
+  max-height: 56px;
 }
 
 .concentric-plaza-map__member-label {
   display: grid;
-  min-width: 88px;
+  min-width: 72px;
   margin-top: -5px;
-  padding: 5px 8px;
+  padding: 4px 6px;
   justify-items: center;
   background: rgba(250, 247, 239, .94);
   border: 1.5px solid color-mix(in srgb, var(--member-color) 50%, transparent);
@@ -384,13 +413,13 @@
 
 .concentric-plaza-map__member-label strong {
   color: var(--member-color);
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .concentric-plaza-map__member-label small {
   margin-top: 2px;
   color: #777268;
-  font-size: 10px;
+  font-size: 8px;
 }
 
 .concentric-plaza-map__status,
@@ -586,12 +615,10 @@
   }
 }
 
-@keyframes concentricSelectableHouse {
+@keyframes concentricFeaturedHouse {
   to {
-    background: rgba(255, 253, 248, .58);
-    box-shadow:
-      0 0 0 9px rgba(232, 99, 74, .09),
-      0 0 32px rgba(232, 99, 74, .48);
+    opacity: .45;
+    transform: scale(1.16);
   }
 }
 
@@ -641,6 +668,7 @@
 @media (prefers-reduced-motion: reduce) {
   .concentric-plaza-map__member-wander,
   .concentric-plaza-map__member.is-focused::after,
+  .concentric-plaza-map__house.is-featured::before,
   .concentric-plaza-map__house,
   .concentric-plaza-map__learning-links path,
   .concentric-plaza-map__dachshund img,
@@ -648,4 +676,21 @@
   .concentric-plaza-map__dialogue {
     animation: none;
   }
+}
+
+/* ── 对谈连结（自 main 移植，codex 版没有）──
+   广场对谈进行时，在两位参与者之间画连结、在说话者头顶浮出台词气泡。
+   接的是后端 /api/plaza/converse，是「接了后端」的核心演示点，勿删。 */
+.concentric-plaza-map__converse {
+  position: absolute;
+  z-index: 7;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.concentric-plaza-map__converse .concentric-plaza-map__dialogue.is-npc {
+  top: auto;
+  bottom: 66px;
+  left: -106px;
 }

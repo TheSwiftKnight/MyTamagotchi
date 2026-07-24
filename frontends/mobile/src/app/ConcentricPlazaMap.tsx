@@ -12,7 +12,10 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { ArrowRight, Home, Minus, Plus, Radio, Users } from "lucide-react";
-import concentricCommonsMap from "../assets/world/plaza/concentric-commons.png";
+import unifiedConcentricTownHdAvif from "../assets/world/plaza/unified-concentric-town@2x.avif";
+import unifiedConcentricTownPng from "../assets/world/plaza/unified-concentric-town.png";
+import petDachshundPng from "../assets/world/pet-agents/sprites/dachshund.png";
+import type { PlazaSkill } from "./plazaSkills";
 import "./ConcentricPlazaMap.css";
 
 export type ConcentricPlazaMember = {
@@ -45,7 +48,9 @@ export type PlazaConverseLine = {
 
 type ConcentricPlazaMapProps = {
   members: ConcentricPlazaMember[];
+  skills?: PlazaSkill[];
   onOpenAgent: (agentId: string) => void;
+  onOpenSkill?: (skillId: string) => void;
   featuredHouses?: FeaturedPlazaHouse[];
   userHouse?: PlazaUserHouse | null;
   selectingHouse?: boolean;
@@ -72,45 +77,50 @@ type PointerPoint = {
 
 type HouseSlot = {
   id: string;
+  ringId: number;
+  ringName: string;
   x: number;
   y: number;
   w: number;
   h: number;
 };
 
-const STAGE_WIDTH = 1672;
-const STAGE_HEIGHT = 941;
+const STAGE_WIDTH = 3344;
+const STAGE_HEIGHT = 1882;
 const MIN_SCALE = 0.22;
 const MAX_SCALE = 2.2;
-const PLAZA_FOCUS = { x: 380, y: 80, width: 912, height: 780 };
+const DEFAULT_PLAZA_SCALE = 0.31;
+const PLAZA_CENTER = { x: STAGE_WIDTH / 2, y: STAGE_HEIGHT / 2 };
+const PLAZA_FOCUS = {
+  x: PLAZA_CENTER.x - 470,
+  y: PLAZA_CENTER.y - 390,
+  width: 940,
+  height: 780,
+};
 
-const HOUSE_SLOTS: HouseSlot[] = [
-  { id: "H01", x: 541, y: 105, w: 104, h: 91 },
-  { id: "H02", x: 636, y: 78, w: 82, h: 78 },
-  { id: "H03", x: 705, y: 75, w: 75, h: 78 },
-  { id: "H04", x: 1005, y: 76, w: 106, h: 82 },
-  { id: "H05", x: 1117, y: 91, w: 92, h: 82 },
-  { id: "H06", x: 1190, y: 108, w: 68, h: 80 },
-  { id: "H07", x: 1306, y: 206, w: 105, h: 96 },
-  { id: "H08", x: 1381, y: 283, w: 88, h: 91 },
-  { id: "H09", x: 1416, y: 384, w: 76, h: 101 },
-  { id: "H10", x: 1411, y: 511, w: 78, h: 97 },
-  { id: "H11", x: 1381, y: 612, w: 89, h: 99 },
-  { id: "H12", x: 1305, y: 693, w: 108, h: 94 },
-  { id: "H13", x: 1187, y: 795, w: 92, h: 86 },
-  { id: "H14", x: 1104, y: 826, w: 78, h: 80 },
-  { id: "H15", x: 1010, y: 844, w: 96, h: 83 },
-  { id: "H16", x: 735, y: 847, w: 86, h: 82 },
-  { id: "H17", x: 648, y: 842, w: 76, h: 80 },
-  { id: "H18", x: 565, y: 826, w: 78, h: 81 },
-  { id: "H19", x: 486, y: 796, w: 98, h: 86 },
-  { id: "H20", x: 366, y: 692, w: 108, h: 95 },
-  { id: "H21", x: 294, y: 604, w: 91, h: 99 },
-  { id: "H22", x: 270, y: 509, w: 74, h: 91 },
-  { id: "H23", x: 278, y: 383, w: 82, h: 101 },
-  { id: "H24", x: 322, y: 281, w: 90, h: 92 },
-  { id: "H25", x: 389, y: 205, w: 102, h: 96 },
-];
+const PLAZA_RINGS = [
+  { id: 1, name: "一环 · 中央住区", rx: 790, ry: 520, capacity: 36, offset: -85 },
+  { id: 2, name: "二环 · 花园住区", rx: 1090, ry: 710, capacity: 44, offset: -85.9 },
+  { id: 3, name: "三环 · 田园住区", rx: 1380, ry: 860, capacity: 52, offset: -86.54 },
+] as const;
+
+const HOUSE_SLOTS: HouseSlot[] = PLAZA_RINGS.flatMap((ring, ringIndex) => {
+  const firstHouseNumber = PLAZA_RINGS
+    .slice(0, ringIndex)
+    .reduce((total, previousRing) => total + previousRing.capacity, 0) + 1;
+  return Array.from({ length: ring.capacity }, (_, slot) => {
+    const angle = (ring.offset + slot * 360 / ring.capacity) * Math.PI / 180;
+    return {
+      id: `H${String(firstHouseNumber + slot).padStart(2, "0")}`,
+      ringId: ring.id,
+      ringName: ring.name,
+      x: Math.round(PLAZA_CENTER.x + Math.cos(angle) * ring.rx),
+      y: Math.round(PLAZA_CENTER.y + Math.sin(angle) * ring.ry),
+      w: ring.id === 1 ? 118 : 110,
+      h: ring.id === 1 ? 94 : 88,
+    };
+  });
+});
 
 const OCCUPIED_HOUSE_INDEXES = [1, 5, 9, 13, 17, 21];
 const MEMBER_POSITIONS = [
@@ -122,6 +132,19 @@ const MEMBER_POSITIONS = [
   { x: 736, y: 585, dx: -15, dy: -12 },
   { x: 836, y: 644, dx: 18, dy: -8 },
   { x: 836, y: 300, dx: -14, dy: 10 },
+].map(position => ({
+  ...position,
+  x: position.x + PLAZA_CENTER.x - 836,
+  y: position.y + PLAZA_CENTER.y - 470,
+}));
+
+const PLAZA_TRAINING_LINES = [
+  { speaker: "Miko", topic: "动作质量", color: "#E8634A", text: "慢一点下蹲，膝盖和脚尖保持同向。" },
+  { speaker: "Atlas", topic: "训练计划", color: "#579447", text: "先建立稳定动作，再逐步增加训练量。" },
+  { speaker: "Shutter", topic: "姿态观察", color: "#4A7FA5", text: "我记录到背部更稳定了，下一轮保持呼吸。" },
+  { speaker: "Noct", topic: "恢复节奏", color: "#6D6884", text: "疲劳不是失败，恢复也是训练的一部分。" },
+  { speaker: "Ansel", topic: "长期习惯", color: "#8A543B", text: "把训练拆成每天都能完成的小步骤。" },
+  { speaker: "Ink", topic: "安全边界", color: "#6A6957", text: "出现刺痛就停止，先确认身体发出的信号。" },
 ];
 
 function getGesture(points: Map<number, PointerPoint>) {
@@ -150,17 +173,38 @@ export function ConcentricPlazaMap({
   onOpenUserWorld,
   focusMemberId = null,
   focusRequest = 0,
+  skills = [],
+  onOpenSkill,
   conversePair = null,
   converseLine = null,
 }: ConcentricPlazaMapProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<MapView>({ scale: 0.4, x: 0, y: 0 });
+  const viewRef = useRef<MapView>({ scale: DEFAULT_PLAZA_SCALE, x: 0, y: 0 });
   const viewportSizeRef = useRef({ width: 0, height: 0 });
   const pointersRef = useRef(new Map<number, PointerPoint>());
   const gestureRef = useRef<ReturnType<typeof getGesture>>(null);
   const [view, setView] = useState(viewRef.current);
+
+  /* 对谈连结用：按成员 id 反查其在地图上的落点（与下方渲染同一套 MEMBER_POSITIONS） */
+  const memberPositionById = (memberId: string) => {
+    const index = members.findIndex(member => member.id === memberId);
+    if (index < 0) return null;
+    return MEMBER_POSITIONS[index % MEMBER_POSITIONS.length];
+  };
+  const conversePositions = conversePair
+    ? [memberPositionById(conversePair[0]), memberPositionById(conversePair[1])]
+    : [null, null];
+  const converseSpeakerPosition = converseLine ? memberPositionById(converseLine.memberId) : null;
   const [dragging, setDragging] = useState(false);
   const [activeHouseId, setActiveHouseId] = useState<string | null>(null);
+  const [dialogueIndex, setDialogueIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setDialogueIndex(current => (current + 1) % PLAZA_TRAINING_LINES.length);
+    }, 2900);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const houses = useMemo(() => HOUSE_SLOTS.map((house, index) => {
     const memberIndex = OCCUPIED_HOUSE_INDEXES.indexOf(index);
@@ -172,15 +216,10 @@ export function ConcentricPlazaMap({
     };
   }), [featuredHouses, members, userHouse]);
   const activeHouse = houses.find(house => house.id === activeHouseId);
-  const memberPositionById = (memberId: string) => {
-    const index = members.findIndex(member => member.id === memberId);
-    if (index < 0) return null;
-    return MEMBER_POSITIONS[index % MEMBER_POSITIONS.length];
-  };
-  const conversePositions = conversePair
-    ? [memberPositionById(conversePair[0]), memberPositionById(conversePair[1])]
-    : [null, null];
-  const converseSpeakerPosition = converseLine ? memberPositionById(converseLine.memberId) : null;
+  const activeTrainingLine = PLAZA_TRAINING_LINES[dialogueIndex];
+  const responseLine = dialogueIndex % 2 === 0
+    ? "收到。先把动作做稳，我们再一起进入下一组。"
+    : "很好，把这条经验写进今天的共同训练记录。";
 
   const constrainView = useCallback((next: MapView) => {
     const { width, height } = viewportSizeRef.current;
@@ -206,17 +245,20 @@ export function ConcentricPlazaMap({
   const fitPlaza = useCallback(() => {
     const { width, height } = viewportSizeRef.current;
     if (!width || !height) return;
-    const scale = Math.max(
+    viewportRef.current?.scrollTo({ left: 0, top: 0 });
+    const fittedScale = Math.max(
       MIN_SCALE,
       Math.min(
         MAX_SCALE,
         Math.min((width - 20) / PLAZA_FOCUS.width, (height - 20) / PLAZA_FOCUS.height),
       ),
     );
+    const compactView = width < 900;
+    const scale = compactView ? DEFAULT_PLAZA_SCALE : fittedScale;
     commitView({
       scale,
-      x: (width - PLAZA_FOCUS.width * scale) / 2 - PLAZA_FOCUS.x * scale,
-      y: (height - PLAZA_FOCUS.height * scale) / 2 - PLAZA_FOCUS.y * scale,
+      x: width / 2 - PLAZA_CENTER.x * scale + (compactView ? width * 0.22 : 0),
+      y: height / 2 - PLAZA_CENTER.y * scale - (compactView ? height * 0.05 : 0),
     });
   }, [commitView]);
 
@@ -256,8 +298,10 @@ export function ConcentricPlazaMap({
     const viewport = viewportRef.current;
     if (!viewport) return;
     const resize = () => {
-      const bounds = viewport.getBoundingClientRect();
-      viewportSizeRef.current = { width: bounds.width, height: bounds.height };
+      viewportSizeRef.current = {
+        width: viewport.clientWidth,
+        height: viewport.clientHeight,
+      };
       if (focusMemberId && focusRequest > 0) focusOnMember();
       else fitPlaza();
     };
@@ -269,7 +313,10 @@ export function ConcentricPlazaMap({
 
   const pointFromEvent = (event: ReactPointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    return {
+      x: (event.clientX - bounds.left) * event.currentTarget.clientWidth / bounds.width,
+      y: (event.clientY - bounds.top) * event.currentTarget.clientHeight / bounds.height,
+    };
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -322,8 +369,8 @@ export function ConcentricPlazaMap({
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
     zoomAt(event.deltaY > 0 ? 0.9 : 1.1, {
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
+      x: (event.clientX - bounds.left) * event.currentTarget.clientWidth / bounds.width,
+      y: (event.clientY - bounds.top) * event.currentTarget.clientHeight / bounds.height,
     });
   };
 
@@ -365,7 +412,10 @@ export function ConcentricPlazaMap({
       onDoubleClick={event => {
         if ((event.target as HTMLElement).closest("button")) return;
         const bounds = event.currentTarget.getBoundingClientRect();
-        zoomAt(1.28, { x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+        zoomAt(1.28, {
+          x: (event.clientX - bounds.left) * event.currentTarget.clientWidth / bounds.width,
+          y: (event.clientY - bounds.top) * event.currentTarget.clientHeight / bounds.height,
+        });
       }}
       onKeyDown={handleKeyDown}
     >
@@ -375,12 +425,10 @@ export function ConcentricPlazaMap({
           transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
         }}
       >
-        <img
-          className="concentric-plaza-map__art"
-          src={concentricCommonsMap}
-          alt=""
-          draggable={false}
-        />
+        <picture className="concentric-plaza-map__art" aria-hidden="true">
+          <source srcSet={unifiedConcentricTownHdAvif} type="image/avif" />
+          <img src={unifiedConcentricTownPng} alt="" draggable={false} />
+        </picture>
         <div className="concentric-plaza-map__vignette" aria-hidden="true" />
 
         <div className="concentric-plaza-map__houses">
@@ -450,25 +498,40 @@ export function ConcentricPlazaMap({
           })}
         </div>
 
-        {conversePositions[0] && conversePositions[1] && (
-          <svg className="concentric-plaza-map__learning-links" viewBox={`0 0 ${STAGE_WIDTH} ${STAGE_HEIGHT}`} aria-hidden="true">
+        <svg className="concentric-plaza-map__learning-links" viewBox={`0 0 ${STAGE_WIDTH} ${STAGE_HEIGHT}`} aria-hidden="true">
+          {MEMBER_POSITIONS.map((position, index) => (
             <path
-              d={`M ${conversePositions[0].x} ${conversePositions[0].y} Q ${(conversePositions[0].x + conversePositions[1].x) / 2} ${Math.min(conversePositions[0].y, conversePositions[1].y) - 80} ${conversePositions[1].x} ${conversePositions[1].y}`}
+              key={index}
+              d={`M ${position.x} ${position.y} Q ${(position.x + PLAZA_CENTER.x) / 2} ${
+                position.y < PLAZA_CENTER.y ? PLAZA_CENTER.y - 80 : PLAZA_CENTER.y + 80
+              } ${PLAZA_CENTER.x} ${PLAZA_CENTER.y}`}
             />
-          </svg>
-        )}
+          ))}
+        </svg>
 
-        {converseLine && converseSpeakerPosition && (
-          <div
-            className="concentric-plaza-map__converse"
-            style={{ left: converseSpeakerPosition.x, top: converseSpeakerPosition.y }}
+        <div className="concentric-plaza-map__learning-scene">
+          <button
+            type="button"
+            className="concentric-plaza-map__dachshund"
+            onClick={event => {
+              event.stopPropagation();
+              onOpenSkill?.(skills.find(skill => skill.id === "fitness-companion")?.id ?? skills[0]?.id ?? "fitness-companion");
+            }}
+            aria-label="查看腊肠犬 Dotti 正在组织的健身学习"
           >
-            <div className="concentric-plaza-map__dialogue is-npc" key={`${converseLine.memberId}-${converseLine.text}`}>
-              <span>{converseLine.name}</span>
-              <p>{converseLine.text}</p>
-            </div>
+            <span className="concentric-plaza-map__dachshund-pulse" />
+            <img src={petDachshundPng} alt="腊肠犬主智能体 Dotti" draggable={false} />
+            <span><strong>Dotti</strong><small>主智能体</small></span>
+          </button>
+          <div className="concentric-plaza-map__dialogue is-npc" key={`npc-${dialogueIndex}`}>
+            <span style={{ color: activeTrainingLine.color }}>{activeTrainingLine.speaker} · {activeTrainingLine.topic}</span>
+            <p>{activeTrainingLine.text}</p>
           </div>
-        )}
+          <div className="concentric-plaza-map__dialogue is-dotti" key={`dotti-${dialogueIndex}`}>
+            <span>Dotti · 共同训练</span>
+            <p>{responseLine}</p>
+          </div>
+        </div>
 
         {members.map((member, index) => {
           const position = MEMBER_POSITIONS[index % MEMBER_POSITIONS.length];
@@ -505,11 +568,31 @@ export function ConcentricPlazaMap({
             </button>
           );
         })}
+
+        {conversePositions[0] && conversePositions[1] && (
+          <svg className="concentric-plaza-map__learning-links" viewBox={`0 0 ${STAGE_WIDTH} ${STAGE_HEIGHT}`} aria-hidden="true">
+            <path
+              d={`M ${conversePositions[0].x} ${conversePositions[0].y} Q ${(conversePositions[0].x + conversePositions[1].x) / 2} ${Math.min(conversePositions[0].y, conversePositions[1].y) - 80} ${conversePositions[1].x} ${conversePositions[1].y}`}
+            />
+          </svg>
+        )}
+
+        {converseLine && converseSpeakerPosition && (
+          <div
+            className="concentric-plaza-map__converse"
+            style={{ left: converseSpeakerPosition.x, top: converseSpeakerPosition.y }}
+          >
+            <div className="concentric-plaza-map__dialogue is-npc" key={`${converseLine.memberId}-${converseLine.text}`}>
+              <span>{converseLine.name}</span>
+              <p>{converseLine.text}</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <header className="concentric-plaza-map__status">
         <span><Radio size={10} /> {selectingHouse ? "SELECT A HOME" : "LIVE PLAZA"}</span>
-        <b><Users size={10} /> {members.length} AGENTS · {HOUSE_SLOTS.length} HOUSES</b>
+        <b><Users size={10} /> {members.length + 1} LEARNING · {HOUSE_SLOTS.length} HOUSES</b>
       </header>
 
       <div className="concentric-plaza-map__zoom">{Math.round(view.scale * 100)}%</div>
@@ -525,7 +608,7 @@ export function ConcentricPlazaMap({
         <aside className="concentric-plaza-map__house-card" onPointerDown={event => event.stopPropagation()}>
           <button type="button" aria-label="关闭房屋信息" onClick={() => setActiveHouseId(null)}>×</button>
           <span>
-            {activeHouse.id} · {activeHouse.userWorld ? "你的世界" : activeHouse.featured ? "主题入口" : activeHouse.member ? "已入住" : "空房"}
+            {activeHouse.ringName} · {activeHouse.id} · {activeHouse.userWorld ? "你的世界" : activeHouse.featured ? "主题入口" : activeHouse.member ? "已入住" : "空房"}
           </span>
           <strong>{activeHouse.userWorld?.worldName ?? activeHouse.featured?.worldName ?? activeHouse.member?.name ?? "等待新的 Agent 世界"}</strong>
           <small>
@@ -549,7 +632,7 @@ export function ConcentricPlazaMap({
 
       <nav className="concentric-plaza-map__controls" aria-label="大地图控制" onPointerDown={event => event.stopPropagation()}>
         <button type="button" onClick={() => zoomAt(1 / 1.18)} aria-label="缩小地图"><Minus size={14} /></button>
-        <button type="button" onClick={fitPlaza} aria-label="显示完整圆形广场"><Home size={14} /></button>
+        <button type="button" onClick={fitPlaza} aria-label="回到中央学习广场"><Home size={14} /></button>
         <button type="button" onClick={() => zoomAt(1.18)} aria-label="放大地图"><Plus size={14} /></button>
       </nav>
 
