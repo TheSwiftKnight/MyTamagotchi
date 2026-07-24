@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+import time
 import urllib.parse
 import uuid
 from datetime import datetime, timezone
@@ -440,6 +441,132 @@ async def plaza_converse(session: Session = Depends(get_session)):
                            content=f"在广场上和{(b if x is a else a).name}聊了会天。"))
     session.commit()
     return {"lines": lines, "learned": learned}
+
+
+# ---------- pair（二维码配对：两个 agent 相遇并交换数据） ----------
+
+QR_PAIR_PREFIX = "FW1:"          # 与 tools/qr_pair/config.py 保持一致
+PAIR_COOLDOWN_SEC = 60.0
+_pair_cache: dict[frozenset, tuple[float, dict]] = {}
+
+
+class PairIn(BaseModel):
+    payload_a: str               # 相机解出的 QR 原文，如 "FW1:3"
+    payload_b: str
+    source: str = "qr_camera"    # 事件源标识（qr_camera / nfc / manual）
+
+
+def _parse_qr_payload(payload: str) -> int:
+    if not payload.startswith(QR_PAIR_PREFIX):
+        raise HTTPException(400, f"二维码载荷格式错误：{payload!r}（应为 {QR_PAIR_PREFIX}<agent_id>）")
+    try:
+        return int(payload[len(QR_PAIR_PREFIX):])
+    except ValueError:
+        raise HTTPException(400, f"二维码载荷不是合法 agent id：{payload!r}")
+
+
+@app.post("/api/pair")
+async def pair_agents(body: PairIn, session: Session = Depends(get_session)):
+    """二维码配对入口：两个 agent 在镜头前同框 → 相遇对话 + 灵魂契合度 + 技能交换。"""
+    id_a = _parse_qr_payload(body.payload_a)
+    id_b = _parse_qr_payload(body.payload_b)
+    if id_a == id_b:
+        raise HTTPException(400, "不能和自己配对")
+    a = session.get(Agent, id_a)
+    b = session.get(Agent, id_b)
+    if not a or not b:
+        raise HTTPException(404, f"agent 不存在：{id_a if not a else id_b}")
+
+    # 冷却：同一对子 60 秒内重复触发直接返回缓存结果（相机侧还有一层冷却，双保险）
+    key = frozenset((id_a, id_b))
+    ts = time.time()
+    cached = _pair_cache.get(key)
+    if cached and ts - cached[0] < PAIR_COOLDOWN_SEC:
+        return {**cached[1], "cached": True}
+
+    a_skills = session.exec(select(Skill).where(Skill.agent_id == a.id)).all()
+    b_skills = session.exec(select(Skill).where(Skill.agent_id == b.id)).all()
+
+    def brief(x: Agent, skills: list[Skill]) -> str:
+        owner = session.get(User, x.owner_id)
+        mems = session.exec(select(Memory).where(Memory.agent_id == x.id)
+                            .order_by(Memory.created_at.desc())).all()[:5]
+        mem = "；".join(m.content for m in mems) or "无"
+        sk = "、".join(s.name for s in skills) or "无"
+        return (f"{x.name}（{x.category}，主人是{owner.username if owner else '?'}，"
+                f"性格：{x.trait}，技能：{sk}，近期记忆：{mem}）")
+
+    result_json = await llm.chat_json([
+        {"role": "system", "content": "你为像素宠物世界生成两个 agent 线下相遇的对话与灵魂契合评估。只输出 JSON。"},
+        {"role": "user", "content": (
+            f"两个来自不同主人的物品 agent 被主人举到镜头前「合影配对」，第一次正式认识。\n"
+            f"A：{brief(a, a_skills)}\nB：{brief(b, b_skills)}\n"
+            f"请基于两者的性格、技能与记忆输出 JSON：{{\n"
+            f'  "lines": [4~6条 {{"speaker": "A或B", "text": "不超过40字的台词"}}],\n'
+            f'  "resonance": {{"score": 两位主人灵魂契合度0-100的整数, '
+            f'"reason": "不超过40字的共鸣解释", "topic": "两位主人值得聊的那件事，不超过30字"}}\n'
+            f"}}"
+        )},
+    ])
+
+    lines: list[dict] = []
+    resonance: dict = {}
+    if isinstance(result_json, dict):
+        for item in result_json.get("lines") or []:
+            if isinstance(item, dict) and item.get("speaker") in ("A", "B"):
+                who = a if item["speaker"] == "A" else b
+                lines.append({"agent_id": who.id, "name": who.name, "emoji": who.emoji,
+                              "text": str(item.get("text", ""))[:60]})
+        r = result_json.get("resonance")
+        if isinstance(r, dict) and isinstance(r.get("score"), (int, float)):
+            resonance = {"score": max(0, min(100, int(r["score"]))),
+                         "reason": str(r.get("reason", ""))[:60],
+                         "topic": str(r.get("topic", ""))[:40]}
+    if not lines:
+        lines = [
+            {"agent_id": a.id, "name": a.name, "emoji": a.emoji, "text": "你好呀，第一次见面！"},
+            {"agent_id": b.id, "name": b.name, "emoji": b.emoji, "text": "幸会幸会，我们主人让我们认识一下。"},
+        ]
+    if not resonance:
+        resonance = {"score": random.randint(55, 80), "reason": "你们的世界里都藏着有趣的东西。",
+                     "topic": "聊聊彼此最近在折腾什么"}
+
+    # 数据交换①：技能互学（一方有对方没有的技能时，50% 概率学会）
+    learned = None
+    a_names = {s.name for s in a_skills}
+    b_names = {s.name for s in b_skills}
+    candidates = [(a, b, s) for s in a_skills if s.name not in b_names] + \
+                 [(b, a, s) for s in b_skills if s.name not in a_names]
+    if candidates and random.random() < 0.5:
+        teacher, learner, skill = random.choice(candidates)
+        session.add(Skill(agent_id=learner.id, name=skill.name, description=skill.description,
+                          code=skill.code, source="learned", kind=skill.kind,
+                          def_id=skill.def_id, manifest=skill.manifest))
+        session.add(Memory(agent_id=learner.id, kind="pair",
+                           content=f"配对相遇时向{teacher.name}学会了技能「{skill.name}」！"))
+        learned = {"learner": learner.name, "learner_id": learner.id,
+                   "teacher": teacher.name, "skill": skill.name}
+
+    # 数据交换②：双方各自记住这次相遇与契合结论
+    for x, other in ((a, b), (b, a)):
+        session.add(Memory(agent_id=x.id, kind="pair",
+                           content=(f"和{other.name}在镜头前配对认识了。"
+                                    f"契合度{resonance['score']}：{resonance['reason']}")))
+        touch(x)
+        session.add(x)
+    session.commit()
+
+    result = {
+        "pair_id": uuid.uuid4().hex[:12],
+        "source": body.source,
+        "agents": [agent_out(a, session), agent_out(b, session)],
+        "lines": lines,
+        "resonance": resonance,
+        "learned": learned,
+        "cached": False,
+    }
+    _pair_cache[key] = (ts, result)
+    return result
 
 
 # ---------- agent 编辑（identity → 加入世界） ----------
