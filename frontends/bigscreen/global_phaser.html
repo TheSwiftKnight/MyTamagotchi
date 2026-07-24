@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ForkWorld · 世界地图</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 手写字体：Caveat(拉丁) + Ma Shan Zheng(中文毛笔)；离线自动回退到 Kaiti -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Ma+Shan+Zheng&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F5F0E8; --card: #FAF6EF; --ink: #1C1911;
+    --ink-soft: #6b6558; --ink-faint: rgba(28,25,17,.14);
+    --a1: #E8634A; --a2: #6B9E7A; --a3: #4A7FA5;
+    --title: "Caveat","Ma Shan Zheng","Kaiti SC","STKaiti",cursive;
+    --hand: "Caveat","Kaiti SC","STKaiti","KaiTi",cursive;
+    --mono: "VT323","Menlo","PingFang SC",monospace;
+    /* 手绘抖动边框（四角 border-radius 各异 = 徒手画的方框） */
+    --wobble: 235px 16px 225px 18px / 18px 220px 20px 235px;
+    --wobble2: 18px 230px 16px 240px / 220px 16px 235px 18px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--paper); }
+  #game-container { position: fixed; inset: 0; }
+  #game-container canvas { display: block; }
+
+  /* 手绘纸卡：墨线抖动边 + 硬边偏移阴影（贴纸/速写本，不用模糊阴影—模糊=通用AI感） */
+  .paper {
+    background: var(--card);
+    border: 2px solid var(--ink);
+    border-radius: var(--wobble);
+    box-shadow: 3px 4px 0 rgba(28,25,17,.16);
+  }
+
+  /* 顶栏 */
+  #topbar {
+    position: fixed; top: 13px; left: 13px; z-index: 10;
+    padding: 5px 15px 6px; display: flex; align-items: baseline; gap: 11px;
+    pointer-events: none; transform: rotate(-.6deg);
+  }
+  #topbar .logo { font-family: var(--title); font-size: 24px; color: var(--ink); letter-spacing: .5px; }
+  #topbar .logo em { color: var(--a1); font-style: normal; }
+  #topbar .sub { font-family: var(--hand); font-size: 14px; color: var(--ink-soft); }
+  #topbar #clock { font-family: var(--mono); font-size: 16px; color: var(--ink-soft); }
+  #topbar #cruise-state { font-family: var(--hand); font-size: 14px; }
+
+  #status-line {
+    position: fixed; top: 60px; left: 18px; z-index: 10;
+    padding: 2px 12px; font-family: var(--hand); font-size: 13px; color: var(--ink-soft);
+    pointer-events: none; transform: rotate(-.6deg); border-radius: var(--wobble2);
+  }
+
+  /* 世界列表（右侧） */
+  #world-panel {
+    position: fixed; top: 13px; right: 13px; z-index: 10;
+    width: 188px; max-height: calc(100vh - 110px);
+    padding: 9px 9px 4px; overflow-y: auto; overflow-x: visible;
+    transform: rotate(.5deg);
+  }
+  #world-panel h3 {
+    font-family: var(--title); font-size: 17px; color: var(--ink);
+    margin: 0 0 2px 3px; display: flex; align-items: center; gap: 5px;
+  }
+  /* 标题下的手绘波浪下划线 */
+  #world-panel .rule {
+    height: 6px; margin: 0 2px 8px; background: no-repeat center/100% 6px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='7'><path d='M2 4 Q 15 1 28 4 T 54 4 T 80 4 T 106 4 T 132 4 T 158 4 T 184 4 T 210 4' fill='none' stroke='%23E8634A' stroke-width='2' stroke-linecap='round'/></svg>");
+  }
+
+  .w-card {
+    position: relative; margin: 0 1px 8px; padding: 6px 8px 7px 40px; cursor: pointer;
+    background: var(--card); border: 1.5px solid var(--ink);
+    border-radius: var(--wobble);
+    box-shadow: 1.5px 2px 0 rgba(28,25,17,.15);
+    transition: transform .13s ease, box-shadow .13s ease;
+  }
+  .w-card:nth-child(odd)  { transform: rotate(-1.1deg); }
+  .w-card:nth-child(even) { transform: rotate(.9deg); }
+  .w-card:hover { transform: rotate(0deg) translate(-2px,-1px); box-shadow: 3px 4px 0 rgba(28,25,17,.2); }
+  .w-card .w-char {
+    position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+    width: 32px; height: 32px;
+  }
+  .w-card .w-char svg,
+  .w-card .w-char img { width: 100%; height: 100%; object-fit: contain; overflow: visible; }
+  .w-name { font-family: var(--title); font-size: 16px; color: var(--ink); line-height: 1.1; }
+  .w-meta { font-family: var(--hand); font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; line-height: 1.2; }
+
+  /* 详情卡（左下） */
+  #detail {
+    position: fixed; left: 18px; bottom: 76px; z-index: 11;
+    width: 316px; max-height: 62vh; padding: 18px 18px 16px; overflow-y: auto;
+    opacity: 0; transform: translateY(12px) rotate(-.6deg); pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease;
+  }
+  #detail.show { opacity: 1; transform: rotate(-.6deg); pointer-events: auto; }
+  #detail-close {
+    position: absolute; top: 10px; right: 14px; border: none; background: none;
+    font-family: var(--hand); font-size: 22px; color: var(--ink-soft); cursor: pointer; line-height: 1;
+  }
+  .d-title { font-family: var(--title); font-size: 30px; line-height: 1.1; }
+  .d-owner { font-family: var(--hand); font-size: 16px; color: var(--ink-soft); margin: 3px 0 10px; }
+  .d-climate { font-family: var(--hand); font-size: 16px; color: var(--ink); line-height: 1.7; margin-bottom: 4px; }
+  .d-sec {
+    font-family: var(--hand); font-size: 17px; color: var(--a1); font-weight: 700;
+    margin-top: 12px; padding-top: 8px;
+    border-top: 2px dashed var(--ink-faint);
+  }
+  .d-lm { display: flex; gap: 9px; align-items: flex-start; margin-top: 7px; }
+  .d-lm span { font-size: 19px; }
+  .d-lm b { font-family: var(--title); font-size: 17px; color: var(--ink); display: block; line-height: 1.15; }
+  .d-lm i { font-family: var(--hand); font-size: 13px; color: var(--ink-soft); font-style: normal; }
+  .d-res, .d-visit, .d-visit-none { font-family: var(--hand); font-size: 15px; color: var(--ink); margin-top: 7px; line-height: 1.5; }
+  .d-visit b { color: var(--a1); }
+  .d-visit i { color: var(--ink-soft); font-style: normal; }
+  .d-visit-none { color: var(--ink-soft); }
+
+  /* 控制按钮（右下）—— 手绘圆钮 */
+  #controls {
+    position: fixed; right: 14px; bottom: 14px; z-index: 10;
+    display: flex; gap: 7px; padding: 6px 8px; transform: rotate(.5deg);
+  }
+  #controls button {
+    min-width: 36px; height: 36px; padding: 0 8px;
+    border: 1.5px solid var(--ink); background: var(--card); color: var(--ink); cursor: pointer;
+    font-family: var(--title); font-size: 17px; line-height: 1;
+    border-radius: 20px 15px 22px 14px / 14px 22px 15px 20px;
+    box-shadow: 1.5px 2px 0 rgba(28,25,17,.16);
+    transition: all .12s ease;
+  }
+  #controls button:hover { background: var(--a1); color: #fff; transform: translate(-1px,-1px); box-shadow: 3px 4px 0 rgba(28,25,17,.2); }
+  #btn-cruise { min-width: auto; padding: 0 12px; font-size: 15px; }
+
+  #hint {
+    position: fixed; left: 50%; bottom: 15px; transform: translateX(-50%) rotate(-.5deg); z-index: 9;
+    padding: 4px 15px; font-family: var(--hand); font-size: 13px; color: var(--ink-soft);
+    pointer-events: none; border-radius: var(--wobble2);
+  }
+
+  ::-webkit-scrollbar { width: 0; }
+  #world-panel { scrollbar-width: none; }
+</style>
+</head>
+<body>
+  <div id="game-container"></div>
+
+  <div id="topbar" class="paper">
+    <span class="logo">Fork<em>World</em> · 世界地图</span>
+    <span class="sub">每个世界，都是一个人</span>
+    <span id="clock"></span>
+    <span id="cruise-state"></span>
+  </div>
+  <div id="status-line" class="paper"></div>
+
+  <div id="world-panel" class="paper">
+    <h3>🌍 在场的世界</h3>
+    <div class="rule"></div>
+    <div id="world-list"></div>
+  </div>
+
+  <div id="detail" class="paper">
+    <button id="detail-close">✕</button>
+    <div id="detail-body"></div>
+  </div>
+
+  <div id="controls" class="paper">
+    <button id="btn-zoom-in" title="放大">＋</button>
+    <button id="btn-zoom-out" title="缩小">－</button>
+    <button id="btn-fit" title="全景">◱</button>
+    <button id="btn-cruise" title="开始自动巡航">▶ 巡航</button>
+  </div>
+
+  <div id="hint" class="paper">拖拽平移 · 滚轮缩放 · 点世界看详情 · 10 秒无操作自动巡航</div>
+
+  <script src="js/vendor/phaser.min.js"></script>
+  <script src="js/shared/tokens.js?v=6"></script>
+  <script src="js/shared/data.js?v=6"></script>
+  <script src="js/global/paper_map.js?v=6"></script>
+  <script src="js/global/app.js?v=6"></script>
+</body>
+</html>

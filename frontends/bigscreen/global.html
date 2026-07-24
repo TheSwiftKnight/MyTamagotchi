@@ -1,182 +1,98 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<title>ForkWorld · 世界地图</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- 手写字体：Caveat(拉丁) + Ma Shan Zheng(中文毛笔)；离线自动回退到 Kaiti -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Ma+Shan+Zheng&family=VT323&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --paper: #F5F0E8; --card: #FAF6EF; --ink: #1C1911;
-    --ink-soft: #6b6558; --ink-faint: rgba(28,25,17,.14);
-    --a1: #E8634A; --a2: #6B9E7A; --a3: #4A7FA5;
-    --title: "Caveat","Ma Shan Zheng","Kaiti SC","STKaiti",cursive;
-    --hand: "Caveat","Kaiti SC","STKaiti","KaiTi",cursive;
-    --mono: "VT323","Menlo","PingFang SC",monospace;
-    /* 手绘抖动边框（四角 border-radius 各异 = 徒手画的方框） */
-    --wobble: 235px 16px 225px 18px / 18px 220px 20px 235px;
-    --wobble2: 18px 230px 16px 240px / 220px 16px 235px 18px;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--paper); }
-  #game-container { position: fixed; inset: 0; }
-  #game-container canvas { display: block; }
-
-  /* 手绘纸卡：墨线抖动边 + 硬边偏移阴影（贴纸/速写本，不用模糊阴影—模糊=通用AI感） */
-  .paper {
-    background: var(--card);
-    border: 2px solid var(--ink);
-    border-radius: var(--wobble);
-    box-shadow: 3px 4px 0 rgba(28,25,17,.16);
-  }
-
-  /* 顶栏 */
-  #topbar {
-    position: fixed; top: 13px; left: 13px; z-index: 10;
-    padding: 5px 15px 6px; display: flex; align-items: baseline; gap: 11px;
-    pointer-events: none; transform: rotate(-.6deg);
-  }
-  #topbar .logo { font-family: var(--title); font-size: 24px; color: var(--ink); letter-spacing: .5px; }
-  #topbar .logo em { color: var(--a1); font-style: normal; }
-  #topbar .sub { font-family: var(--hand); font-size: 14px; color: var(--ink-soft); }
-  #topbar #clock { font-family: var(--mono); font-size: 16px; color: var(--ink-soft); }
-  #topbar #cruise-state { font-family: var(--hand); font-size: 14px; }
-
-  #status-line {
-    position: fixed; top: 60px; left: 18px; z-index: 10;
-    padding: 2px 12px; font-family: var(--hand); font-size: 13px; color: var(--ink-soft);
-    pointer-events: none; transform: rotate(-.6deg); border-radius: var(--wobble2);
-  }
-
-  /* 世界列表（右侧） */
-  #world-panel {
-    position: fixed; top: 13px; right: 13px; z-index: 10;
-    width: 188px; max-height: calc(100vh - 110px);
-    padding: 9px 9px 4px; overflow-y: auto; overflow-x: visible;
-    transform: rotate(.5deg);
-  }
-  #world-panel h3 {
-    font-family: var(--title); font-size: 17px; color: var(--ink);
-    margin: 0 0 2px 3px; display: flex; align-items: center; gap: 5px;
-  }
-  /* 标题下的手绘波浪下划线 */
-  #world-panel .rule {
-    height: 6px; margin: 0 2px 8px; background: no-repeat center/100% 6px;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='7'><path d='M2 4 Q 15 1 28 4 T 54 4 T 80 4 T 106 4 T 132 4 T 158 4 T 184 4 T 210 4' fill='none' stroke='%23E8634A' stroke-width='2' stroke-linecap='round'/></svg>");
-  }
-
-  .w-card {
-    position: relative; margin: 0 1px 8px; padding: 6px 8px 7px 40px; cursor: pointer;
-    background: var(--card); border: 1.5px solid var(--ink);
-    border-radius: var(--wobble);
-    box-shadow: 1.5px 2px 0 rgba(28,25,17,.15);
-    transition: transform .13s ease, box-shadow .13s ease;
-  }
-  .w-card:nth-child(odd)  { transform: rotate(-1.1deg); }
-  .w-card:nth-child(even) { transform: rotate(.9deg); }
-  .w-card:hover { transform: rotate(0deg) translate(-2px,-1px); box-shadow: 3px 4px 0 rgba(28,25,17,.2); }
-  .w-card .w-char {
-    position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
-    width: 32px; height: 32px;
-  }
-  .w-card .w-char svg,
-  .w-card .w-char img { width: 100%; height: 100%; object-fit: contain; overflow: visible; }
-  .w-name { font-family: var(--title); font-size: 16px; color: var(--ink); line-height: 1.1; }
-  .w-meta { font-family: var(--hand); font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; line-height: 1.2; }
-
-  /* 详情卡（左下） */
-  #detail {
-    position: fixed; left: 18px; bottom: 76px; z-index: 11;
-    width: 316px; max-height: 62vh; padding: 18px 18px 16px; overflow-y: auto;
-    opacity: 0; transform: translateY(12px) rotate(-.6deg); pointer-events: none;
-    transition: opacity .2s ease, transform .2s ease;
-  }
-  #detail.show { opacity: 1; transform: rotate(-.6deg); pointer-events: auto; }
-  #detail-close {
-    position: absolute; top: 10px; right: 14px; border: none; background: none;
-    font-family: var(--hand); font-size: 22px; color: var(--ink-soft); cursor: pointer; line-height: 1;
-  }
-  .d-title { font-family: var(--title); font-size: 30px; line-height: 1.1; }
-  .d-owner { font-family: var(--hand); font-size: 16px; color: var(--ink-soft); margin: 3px 0 10px; }
-  .d-climate { font-family: var(--hand); font-size: 16px; color: var(--ink); line-height: 1.7; margin-bottom: 4px; }
-  .d-sec {
-    font-family: var(--hand); font-size: 17px; color: var(--a1); font-weight: 700;
-    margin-top: 12px; padding-top: 8px;
-    border-top: 2px dashed var(--ink-faint);
-  }
-  .d-lm { display: flex; gap: 9px; align-items: flex-start; margin-top: 7px; }
-  .d-lm span { font-size: 19px; }
-  .d-lm b { font-family: var(--title); font-size: 17px; color: var(--ink); display: block; line-height: 1.15; }
-  .d-lm i { font-family: var(--hand); font-size: 13px; color: var(--ink-soft); font-style: normal; }
-  .d-res, .d-visit, .d-visit-none { font-family: var(--hand); font-size: 15px; color: var(--ink); margin-top: 7px; line-height: 1.5; }
-  .d-visit b { color: var(--a1); }
-  .d-visit i { color: var(--ink-soft); font-style: normal; }
-  .d-visit-none { color: var(--ink-soft); }
-
-  /* 控制按钮（右下）—— 手绘圆钮 */
-  #controls {
-    position: fixed; right: 14px; bottom: 14px; z-index: 10;
-    display: flex; gap: 7px; padding: 6px 8px; transform: rotate(.5deg);
-  }
-  #controls button {
-    min-width: 36px; height: 36px; padding: 0 8px;
-    border: 1.5px solid var(--ink); background: var(--card); color: var(--ink); cursor: pointer;
-    font-family: var(--title); font-size: 17px; line-height: 1;
-    border-radius: 20px 15px 22px 14px / 14px 22px 15px 20px;
-    box-shadow: 1.5px 2px 0 rgba(28,25,17,.16);
-    transition: all .12s ease;
-  }
-  #controls button:hover { background: var(--a1); color: #fff; transform: translate(-1px,-1px); box-shadow: 3px 4px 0 rgba(28,25,17,.2); }
-  #btn-cruise { min-width: auto; padding: 0 12px; font-size: 15px; }
-
-  #hint {
-    position: fixed; left: 50%; bottom: 15px; transform: translateX(-50%) rotate(-.5deg); z-index: 9;
-    padding: 4px 15px; font-family: var(--hand); font-size: 13px; color: var(--ink-soft);
-    pointer-events: none; border-radius: var(--wobble2);
-  }
-
-  ::-webkit-scrollbar { width: 0; }
-  #world-panel { scrollbar-width: none; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f4f0e7">
+  <title>ForkWorld · 六环同心广场</title>
+  <style>
+    :root {
+      --paper:#f4f0e7; --card:rgba(250,247,239,.92); --ink:#34352f;
+      --soft:#777268; --line:rgba(75,73,65,.20); --sage:#87976e;
+      --straw:#d8c997; --coral:#c9876d;
+      --font:Inter,-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;
+    }
+    *{box-sizing:border-box}
+    html,body{width:100%;height:100%;margin:0;overflow:hidden;background:var(--paper);color:var(--ink);font-family:var(--font)}
+    button{font:inherit;color:inherit}
+    #app{width:100%;height:100%}
+    .map-shell{position:relative;width:100%;height:100%;overflow:hidden;background:#e9e4d8;touch-action:none}
+    .map-stage{position:absolute;width:1672px;height:941px;transform-origin:0 0;will-change:transform}
+    .map-art{position:absolute;inset:0;background:url("assets/maps/six-ring-commons.png") center/cover no-repeat;filter:saturate(.72) contrast(.94) brightness(1.04)}
+    .map-art::after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse,transparent 58%,rgba(76,68,53,.08));pointer-events:none}
+    .house-hotspot{position:absolute;width:48px;height:42px;padding:0;translate:-50% -50%;border:0;background:transparent;cursor:pointer;transition:transform .16s;filter:drop-shadow(0 2px 2px rgba(73,58,38,.18))}
+    .house-hotspot:hover,.house-hotspot:focus-visible,.house-hotspot.is-active{z-index:5;transform:translateY(-4px) scale(1.18);outline:none}
+    .house-hotspot::after{content:"";position:absolute;right:2px;top:4px;width:7px;height:7px;border:1px solid rgba(255,255,255,.9);border-radius:50%;background:#aaa69c;opacity:.58}
+    .house-glyph{position:absolute;inset:0;background:url("assets/maps/cottage-marker.png") center/contain no-repeat}
+    .house-glyph i{display:none}
+    .house-hotspot.is-occupied{filter:drop-shadow(0 2px 2px rgba(73,58,38,.18)) drop-shadow(0 0 4px var(--accent))}
+    .house-hotspot.is-occupied::after{background:var(--accent);opacity:1}
+    .house-hotspot.is-active::before{content:"";position:absolute;inset:-3px;border:2px dashed rgba(250,247,239,.96);border-radius:50%}
+    .house-number{position:absolute;top:44px;left:50%;translate:-50% 0;padding:3px 7px;border:1px solid var(--line);border-radius:7px;background:rgba(250,247,239,.96);color:#58544c;font-size:9px;white-space:nowrap;opacity:0;transition:.16s;box-shadow:0 4px 12px rgba(66,60,48,.12)}
+    .house-hotspot:hover .house-number,.house-hotspot:focus-visible .house-number,.house-hotspot.is-active .house-number{opacity:1}
+    .debug-hotspots .house-hotspot{background:rgba(232,99,74,.25)}
+    .topbar,.status,.controls,.hint,.panel,.detail{position:fixed;z-index:20;background:var(--card);border:1px solid var(--line);box-shadow:0 8px 24px rgba(66,60,48,.10);backdrop-filter:blur(12px)}
+    .topbar{top:max(12px,env(safe-area-inset-top));left:14px;display:flex;align-items:center;gap:12px;padding:9px 13px;border-radius:14px}
+    .brand{font-weight:800;letter-spacing:.12em;font-size:13px}.brand i{color:var(--coral);font-style:normal}
+    .topbar small,.status{color:var(--soft);font-size:10px}
+    .clock{padding-left:10px;border-left:1px solid var(--line);font-variant-numeric:tabular-nums}
+    .status{top:67px;left:14px;padding:6px 10px;border-radius:10px}
+    .panel{top:14px;right:14px;width:236px;padding:13px;border-radius:16px}
+    .panel h2{margin:0 0 8px;font-size:13px}.occupancy{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+    .occupancy span{padding:9px;border-radius:10px;background:rgba(255,255,255,.4);font-size:10px;color:var(--soft)}
+    .occupancy b{display:block;color:var(--ink);font-size:20px}.panel p{margin:9px 2px 0;color:var(--soft);font-size:10px;line-height:1.5}
+    .ring-list{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:9px}
+    .ring-item{display:flex;align-items:center;gap:5px;padding:6px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.38);text-align:left;cursor:pointer}
+    .ring-item:hover{background:#fff}.ring-item b{display:grid;width:20px;height:20px;place-items:center;border-radius:50%;background:var(--sage);color:#fff;font-size:10px}
+    .ring-item span{font-size:9px;line-height:1.1}.ring-item small{display:block;margin-top:2px;color:var(--soft);font-size:8px}
+    .controls{right:14px;bottom:max(14px,env(safe-area-inset-bottom));display:flex;gap:6px;padding:6px;border-radius:14px}
+    .controls button,.detail-close{border:1px solid var(--line);border-radius:9px;background:#faf7ef;cursor:pointer}
+    .controls button{min-width:36px;height:36px;padding:0 10px}.controls button:hover{background:#ece6d8}
+    .hint{left:50%;bottom:16px;translate:-50% 0;padding:7px 12px;border-radius:11px;color:var(--soft);font-size:10px;pointer-events:none}
+    .detail{left:14px;bottom:62px;width:min(340px,calc(100vw - 28px));max-height:58vh;padding:18px;border-radius:18px;overflow:auto;opacity:0;translate:0 12px;pointer-events:none;transition:.18s}
+    .detail.show{opacity:1;translate:0 0;pointer-events:auto}.detail-close{position:absolute;top:10px;right:10px;width:30px;height:30px}
+    .detail h1{margin:0 35px 2px 0;font-size:24px}.detail-owner{margin:0 0 12px;color:var(--soft);font-size:11px}
+    .detail-climate{line-height:1.6;font-size:13px}.detail h3{margin:16px 0 7px;padding-top:10px;border-top:1px dashed var(--line);font-size:12px;color:var(--coral)}
+    .landmark{display:flex;gap:8px;margin:7px 0;font-size:12px}.landmark i{font-style:normal;font-size:18px}.landmark small{display:block;color:var(--soft)}
+    .resonance{padding:9px;border-radius:10px;background:rgba(216,201,151,.26);font-size:11px;line-height:1.5}
+    .empty{color:var(--soft);font-size:11px}
+    .enter-world{display:flex;width:100%;height:42px;margin-top:14px;align-items:center;justify-content:center;border:1px solid #667154;border-radius:11px;background:#899878;color:#fff;font-weight:700;cursor:pointer}
+    .enter-world:hover{background:#758663}.empty-house{padding:22px 0 8px;text-align:center}.empty-house strong{display:block;margin:7px 0;font-size:20px}.empty-house i{font-style:normal;font-size:38px}
+    @media (max-width:720px){
+      .topbar{right:10px;left:10px;top:max(8px,env(safe-area-inset-top));justify-content:space-between}.topbar small{display:none}
+      .status{top:58px;left:10px}.panel{top:auto;right:10px;bottom:10px;left:10px;width:auto;padding:8px 10px calc(8px + env(safe-area-inset-bottom));border-radius:14px}
+      .panel h2,.panel p,.ring-list{display:none}.occupancy{display:flex;gap:14px}.occupancy span{padding:0;background:none}.occupancy b{display:inline;margin-right:4px;font-size:14px}
+      .controls{right:10px;bottom:65px}.hint{display:none}.detail{bottom:64px;max-height:62vh}
+    }
+  </style>
 </head>
 <body>
-  <div id="game-container"></div>
-
-  <div id="topbar" class="paper">
-    <span class="logo">Fork<em>World</em> · 世界地图</span>
-    <span class="sub">每个世界，都是一个人</span>
-    <span id="clock"></span>
-    <span id="cruise-state"></span>
-  </div>
-  <div id="status-line" class="paper"></div>
-
-  <div id="world-panel" class="paper">
-    <h3>🌍 在场的世界</h3>
-    <div class="rule"></div>
-    <div id="world-list"></div>
-  </div>
-
-  <div id="detail" class="paper">
-    <button id="detail-close">✕</button>
-    <div id="detail-body"></div>
-  </div>
-
-  <div id="controls" class="paper">
-    <button id="btn-zoom-in" title="放大">＋</button>
-    <button id="btn-zoom-out" title="缩小">－</button>
-    <button id="btn-fit" title="全景">◱</button>
-    <button id="btn-cruise" title="开始自动巡航">▶ 巡航</button>
-  </div>
-
-  <div id="hint" class="paper">拖拽平移 · 滚轮缩放 · 点世界看详情 · 10 秒无操作自动巡航</div>
-
-  <script src="js/vendor/phaser.min.js"></script>
-  <script src="js/shared/tokens.js?v=6"></script>
-  <script src="js/shared/data.js?v=6"></script>
-  <script src="js/global/paper_map.js?v=6"></script>
-  <script src="js/global/app.js?v=6"></script>
+  <main id="app">
+    <section class="map-shell" id="viewport" aria-label="ForkWorld 六环同心广场">
+      <div class="map-stage" id="stage">
+        <div class="map-art"></div>
+        <div id="house-hotspots"></div>
+      </div>
+    </section>
+    <header class="topbar">
+      <span class="brand">FORK<i>WORLD</i></span><small>六环同心广场 · 每个世界，都是一个人</small><span class="clock" id="clock"></span>
+    </header>
+    <div class="status" id="status">正在载入广场…</div>
+    <aside class="panel">
+      <h2>六圈房区 · <span id="ring-count">0</span> 环</h2>
+      <div class="occupancy"><span><b id="occupied-count">0</b>已入住</span><span><b id="empty-count">0</b>空房</span></div>
+      <div class="ring-list" id="ring-list"></div>
+      <p>点击任意房屋查看入住状态与 Agent 世界。</p>
+    </aside>
+    <aside class="detail" id="detail"><button class="detail-close" id="detail-close" aria-label="关闭">×</button><div id="detail-body"></div></aside>
+    <nav class="controls" aria-label="地图控制">
+      <button id="zoom-in" aria-label="放大">＋</button><button id="zoom-out" aria-label="缩小">－</button>
+      <button id="fit" aria-label="复位">⌂</button><button id="cruise" aria-label="巡航">▶</button>
+    </nav>
+    <div class="hint">拖拽平移 · 滚轮或双指缩放 · 点击世界查看详情</div>
+  </main>
+  <script src="js/shared/tokens.js"></script>
+  <script src="js/shared/data.js"></script>
+  <script src="js/global/light_app.js"></script>
 </body>
 </html>
