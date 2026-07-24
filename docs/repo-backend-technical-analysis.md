@@ -1,6 +1,9 @@
 # My Tamagotchi / ForkWorld 後端技術解析
 
 > 範圍：以軟體與後端為主，不包含硬體實作
+>
+> 最後更新：2026-07-25（補上「兩個人連結」二維碼配對、語音對話、
+> LLM JSON 防護與 SQLite 寫鎖修復；模型供應商已換成 SiliconFlow）
 
 ## 摘要
 
@@ -9,10 +12,13 @@
 - React + TypeScript 手機前端
 - FastAPI 共用後端
 - SQLModel + SQLite 持久化
-- OpenRouter 文字、視覺與圖片模型
+- SiliconFlow `deepseek-ai/DeepSeek-V3` 文字模型（OpenAI 相容介面，可換供應商）
 - 智譜 GLM 世界生成與世界互訪模組
 
 畫面裡 Agent 自動冒出的聊天泡泡，可能是「世界演化事件」生成 2. 使用者直接與 Agent 聊天。
+
+線下展演的主線則是 **兩個人連結**：兩位主人把 agent 二維碼舉到鏡頭前同框，
+觸發 `POST /api/pair` 產生相遇對話、靈魂契合度與技能互學（見 §2.2b）。
 
 ---
 
@@ -34,6 +40,10 @@ flowchart LR
     API --> WE["World Visit 模組"]
     WE --> GLM["智譜 GLM API"]
     WE --> RAM["World / Visit<br/>目前只存記憶體"]
+
+    CAM["Insta360 Link 2<br/>二維碼配對相機"] -->|"POST /api/pair"| API
+    API -->|"SSE 事件"| BIG["攤位大屏<br/>配對演出動畫"]
+    QRS["手機二維碼頁<br/>qr_server :8600"] -->|"輪詢 /api/pair/latest"| API
 ```
 
 前端預設以 `/api` 呼叫後端，Vite 開發代理指向 `localhost:8000`，也就是 FastAPI。
@@ -103,21 +113,20 @@ agent-{id}: {name}（{category}，性格：{trait}，心情：{mood}）
 
 ### 2.2 使用的模型
 
-FastAPI 統一透過 OpenRouter 的 OpenAI-compatible `/chat/completions` API。
+FastAPI 透過 OpenAI-compatible 的 `/chat/completions` API 呼叫，供應商由
+`backend/.env` 的 `LLM_BASE_URL` 決定，換供應商不用改程式。
 
-目前 `backend/.env` 指定的主要文字模型是：
+**目前實際配置（2026-07-25 更新，已從 OpenRouter 換成 SiliconFlow）**：
 
 ```text
-nvidia/nemotron-3-super-120b-a12b:free
+LLM_BASE_URL=https://api.siliconflow.cn/v1/chat/completions
+LLM_MODEL=deepseek-ai/DeepSeek-V3
+LLM_JSON_RESCUE_MODEL=deepseek-ai/DeepSeek-V3
 ```
 
-Fallback 順序：
-
-1. `nvidia/nemotron-3-super-120b-a12b:free`
-2. `nvidia/nemotron-3-nano-30b-a3b:free`
-3. `google/gemma-4-26b-a4b-it:free`
-4. `openai/gpt-oss-20b:free`
-5. JSON 解析仍失敗時：`google/gemini-3.1-flash-lite`
+> ⚠️ 模型不要往下換到 7B 級：實測 `Qwen/Qwen2.5-7B-Instruct` 在配對這種
+> 「長 prompt + 嚴格 JSON schema」的任務下會直接崩壞，輸出退化成重複吐
+> `"}` 或只生成一條台詞就截斷，導致所有 LLM 內容全程走兜底文案。
 
 如果沒有 API key、模型失敗或網路失效，則會退回幾句本地預設台詞，例如：
 
@@ -128,6 +137,116 @@ Fallback 順序：
 ```
 
 這讓 Demo 不會因為 LLM 服務暫時失效而直接回傳 500。
+
+#### JSON 輸出的三層防護（`backend/app/llm.py`）
+
+`chat_json()` 是所有結構化生成的共用入口（世界事件、技能鍛造、記憶蒸餾、
+配對）。小模型產生的 JSON 很常壞掉，所以有三層防護：
+
+1. **約束解碼**：先帶 `response_format={"type":"json_object"}` 呼叫，讓服務端
+   保證括號閉合；模型不支援時自動退回自由生成再試一次。
+2. **殘缺修復** `_repair_json()`：掃括號堆疊補上漏掉的閉合符（模型很愛寫出
+   `[{"a":1},{"b":2]` 這種中間漏 `}` 的），並去掉尾逗號。被 `max_tokens`
+   截斷、一個閉合符都沒有時也能補完。字串內的括號不計入堆疊。
+3. **失敗留痕**：呼叫失敗或解析失敗都會 `print` 出模型名、原因與原始輸出前
+   200 字。**這點很重要**——舊版是靜默 `except: continue`，限流／超時／格式
+   崩壞全部無聲退回兜底短句，現場只看得到「寵物答非所問」卻查不出原因。
+
+排查 LLM 相關問題時，先看後端 stdout 有沒有 `[llm]` 開頭的行。
+
+### 2.2b 兩個人連結：二維碼配對（`POST /api/pair`）
+
+線下破冰主線。兩位主人各自把手機上的 agent 二維碼舉到鏡頭前同框，兩個
+agent 當場「認識」，產出相遇對話、靈魂契合度與技能互學。
+
+#### 鏈路
+
+```text
+Insta360 Link 2 相機
+→ tools/qr_pair/capture.py     ffmpeg 依「名字」取流（cv2 序號會開錯到內建鏡頭）
+→ decoder.py                    WeChatQRCode 多碼解碼（同一幀解出兩個碼）
+→ fsm.py                        配對狀態機（雙碼同框達閾值才觸發，帶冷卻）
+→ POST /api/pair                後端生成對話 + 契合度 + 技能交換
+→ 大屏 bigscreen.html           SSE 推送，播放撞擊演出動畫
+→ 手機 qr_server.py             輪詢 /api/pair/latest/{id}，自動翻到結果頁
+```
+
+#### 二維碼載荷協議
+
+```text
+FW1:<agent_id>          例：FW1:3
+```
+
+前綴常數兩邊必須一致：後端 `main.py` 的 `QR_PAIR_PREFIX`、相機側
+`tools/qr_pair/config.py` 的 `QR_PREFIX`。
+
+#### 端點
+
+```http
+POST /api/pair
+Content-Type: application/json
+
+{
+  "payload_a": "FW1:1",
+  "payload_b": "FW1:3",
+  "source": "qr_camera"
+}
+```
+
+回傳：
+
+```jsonc
+{
+  "pair_id": "fc0a81887a64",
+  "agents": [ /* 兩個 agent_out()，含 image 形象圖 URL */ ],
+  "lines": [ {"agent_id": 1, "name": "豆豆", "image": "/api/pets/.../final",
+              "text": "墨墨！上次听主人在你面前读诗时打了个喷嚏…"} ],
+  "resonance": {"score": 83, "reason": "都执着于记录主人生活里易逝的微光",
+                "topic": "讨论如何保存那些深夜独处时的灵感痕迹"},
+  "learned": {"learner": "铁蛋", "teacher": "豆豆", "skill": "安慰模式"},
+  "cached": false
+}
+```
+
+```http
+GET /api/pair/latest/{agent_id}
+```
+
+回傳該 agent 最近一次配對結果（手機二維碼頁輪詢用），沒有則回 `{}`。
+
+#### 配對觸發的三件事
+
+| # | 效果 | 落庫 |
+|---|---|---|
+| 1 | 相遇對話 4~6 句 | 不落庫，即時演出用 |
+| 2 | 兩位主人的靈魂契合度（0-100）與共鳴理由 | 寫入雙方 `Memory(kind="pair")` |
+| 3 | 技能互學：一方有對方沒有的技能時 50% 機率學會 | 新增 `Skill(source="learned")` + `Memory(kind="pair")` |
+
+配對後還會非同步觸發雙方的 `_refresh_profile_digest()`，把這次相遇融進
+`profile.memory_digest`，所以**配對會影響之後的聊天人設與下一次契合度計算**——
+契合度算的就是這份長期積累，`brief()` 會把 digest 一起餵給 LLM。
+
+#### 兩個容易踩的坑（都已修，改動時別改回去）
+
+1. **說話人不能只認 `"A"/"B"`**：prompt 要求模型回 A/B，但模型實際常回
+   agent 名字。`_resolve_speaker()` 依「名字 → id → A/B → 子串」逐層放寬，
+   認不出就按順序交替兜底，**絕不整段丟棄台詞**。
+2. **契合度標度會失控**：模型常把「契合度」按十分制理解回 `7`，大屏顯示
+   「契合度 7/100」等同演示事故。`_normalize_score()` 做歸一化
+   （0-1 比例、0-10 十分制 → 百分制），字串 `"85"` 也接。
+
+冷卻：同一對 agent 60 秒內重複觸發直接回快取結果（`cached: true`），
+相機側 `fsm.py` 還有一層冷卻，雙保險。
+
+#### 前端顯示 agent 形象要注意
+
+`agent.image` 是**後端的相對 URL**（如 `/api/pets/{job}/files/final`），不是
+emoji 字形（`emoji` 欄位已在 DB 改版時刪除）。兩個展示端取圖方式不同：
+
+- `qr_server.py`：手機掃碼開頁時直連 `127.0.0.1:8000` 不通，所以由 qr_server
+  自己代理一層 `GET /avatar/<agent_id>` 做成同源；取不到圖回紙墨風占位 SVG。
+- `bigscreen.html`：支援 `file://` 直開、走不了代理，改在 JS 裡用
+  `avatarUrl()` 對 `BACKEND` 拼絕對 URL。
 
 ### 2.3 使用者與單一 Agent 一對一聊天
 
@@ -166,6 +285,26 @@ Content-Type: application/json
 始终用简体中文、以第一人称、符合性格地说话，回复要口语化且不超过60字，
 可以带一点符合物品身份的小动作描写（用括号）。
 ```
+
+Persona prompt 還會帶上 `profile.memory_digest`（Agent 對主人的滾動長期印象）。
+
+### 2.3b 語音對話（`POST /api/agents/{id}/voice_chat`）
+
+手機端 MIC 按鈕與板子共用這條鏈路：音檔 → STT → 人設對話 → TTS。
+
+```http
+POST /api/agents/{agent_id}/voice_chat
+Content-Type: multipart/form-data
+
+file=<audio blob，上限 10MB>
+```
+
+回傳 `{transcript, reply, mood, audio_base64, audio_mime}`。TTS 失敗不阻斷，
+前端仍可顯示文字回覆。STT／TTS 模型走 `llm.py` 的 `LLM_STT_MODEL` /
+`LLM_TTS_MODEL`，**API key 只在後端**，不進固件也不進前端。
+
+板子側另有 `tools/voice_bridge/`（Mac 側中轉，走 PCM，回覆文字用 `X-Reply`
+響應頭帶回螢幕）。
 
 ### 2.4 Node 版聊天
 
@@ -246,31 +385,35 @@ CREATE TABLE memory (
 | `plaza` | 廣場交流、技能學習 |
 | `world` | 世界演化事件 |
 | `skill` | 技能使用、技能鍛造 |
+| `pair` | 二維碼配對相遇、配對時學到的技能 |
 
-程式註解沒有列出 `skill`，但實際會寫入。
+程式註解沒有列出 `skill` 與 `pair`，但實際會寫入。
 
 ### 3.3 目前資料量
 
-截至本次檢查，SQLite 內有：
+截至 2026-07-25 02:40，SQLite 內有：
 
 | 資料 | 數量 |
 |---|---:|
-| Agent | 10 |
-| Memory | 160 |
-| World Event | 50 |
-| Skill | 15 |
+| Agent | 11 |
+| Memory | 794 |
+| World Event | 303 |
+| Skill | 19 |
 | Artifact | 13 |
 
 Memory 分布：
 
 | kind | 數量 |
 |---|---:|
-| world | 112 |
-| plaza | 25 |
+| world | 707 |
+| plaza | 28 |
+| pair | 19 |
+| chat | 18 |
 | skill | 13 |
 | diary | 5 |
-| camera | 3 |
-| chat | 2 |
+| camera | 4 |
+
+`world` 佔了近九成，是 45 秒自動 tick 累積的結果。
 
 ### 3.4 Memory 檢索方法
 
@@ -496,5 +639,19 @@ Job metadata 會存到磁碟，因此具有基本的重啟恢復與 retry 能力
 | Redis / MQTT 未接線 | 文件描述完整架構，但 repo 主服務沒有實際使用 |
 | Schema 沒有統一驗證 | JSON Schema 存在，但 API 沒有統一經 validator 驗證 |
 | 無身份驗證 | `ME_USER_ID=1`、CORS `*`，屬於單使用者 Demo 設計--> 以user id區分不同user |
+| SQLite 寫鎖競爭 | 45 秒的世界 tick 與 `/chat`、`/api/pair` 會搶寫鎖。已修（見下），但併發再上去仍是瓶頸，上雲時建議換 Postgres |
+| 配對結果只在記憶體 | `_pair_cache` / `_pair_latest` 是行程內 dict，後端一重啟就沒了。Demo 夠用，但多開 worker 會失效（必須單 worker 跑） |
+
+### 5.1 SQLite 寫鎖競爭是怎麼修的
+
+這是「語音對話／聊天偶爾掉兜底文案」的真兇，改動時別改回去：
+
+1. `db.py` 對每條連線設 `journal_mode=WAL` + `busy_timeout=30000`
+   + `synchronous=NORMAL`。
+2. `busy_timeout` **擋不住鎖升級**——事務已持讀鎖再要寫鎖時 SQLite 會立刻
+   回 BUSY 而不等待，所以另有 `db.commit_with_retry()` 做退避重試（6 次、
+   每次 0.3 秒），`main.py` 與 `world.py` 的寫入都走它，不要直接 `session.commit()`。
+3. `world.py` 產生事件時先 `session.rollback()` 釋放讀快照，再去 await LLM。
+   舊版在持鎖狀態下等 LLM 幾十秒，把 `/chat` 全擋死。
 
 ---
