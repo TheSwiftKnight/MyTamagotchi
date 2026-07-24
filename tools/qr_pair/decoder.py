@@ -28,13 +28,22 @@ class QRDecoder:
 
     def decode(self, frame) -> list[str]:
         """返回本帧解出的全部合法载荷（带 FW1: 前缀的原文），已去重。"""
-        texts: list[str] = []
+        return [t for t, _ in self.decode_points(frame)]
+
+    def decode_points(self, frame) -> list[tuple[str, "object"]]:
+        """返回 [(载荷, 四角点数组)]，供大屏画识别框。只含合法 FW1: 载荷，已去重。"""
+        pairs: list[tuple[str, object]] = []
         if self._wechat is not None:
-            res, _points = self._wechat.detectAndDecode(frame)
-            texts = list(res)
+            res, points = self._wechat.detectAndDecode(frame)
+            pairs = list(zip(res, points if points is not None else [None] * len(res)))
         else:
-            ok, res, _points, _ = self._fallback.detectAndDecodeMulti(frame)
+            ok, res, points, _ = self._fallback.detectAndDecodeMulti(frame)
             if ok:
-                texts = [t for t in res if t]
-        valid = [t for t in texts if t.startswith(QR_PREFIX)]
-        return list(dict.fromkeys(valid))
+                pairs = [(t, p) for t, p in zip(res, points) if t]
+        seen: set[str] = set()
+        out = []
+        for t, p in pairs:
+            if t.startswith(QR_PREFIX) and t not in seen:
+                seen.add(t)
+                out.append((t, p))
+        return out

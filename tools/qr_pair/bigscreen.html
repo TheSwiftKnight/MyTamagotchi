@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ForkWorld · 合影配对大屏</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", -apple-system, "Noto Sans SC", sans-serif;
+    background: #F5F0E8;
+    background-image: radial-gradient(#E4DCCB 1.2px, transparent 1.2px);
+    background-size: 26px 26px;
+    color: #1C1911;
+    display: flex; gap: 26px; padding: 26px;
+  }
+
+  /* ---- 左：摄像头画面 ---- */
+  .stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .cam-card {
+    flex: 1; background: #1C1911; border: 3px solid #1C1911; border-radius: 22px;
+    box-shadow: 10px 10px 0 rgba(28,25,17,.85); overflow: hidden; position: relative;
+  }
+  .cam-card img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .cam-tag {
+    position: absolute; top: 16px; left: 16px;
+    background: rgba(28,25,17,.75); color: #F5F0E8; font-size: 14px; letter-spacing: 2px;
+    padding: 7px 14px; border-radius: 999px; display: flex; align-items: center; gap: 8px;
+    backdrop-filter: blur(4px);
+  }
+  .reddot { width: 9px; height: 9px; border-radius: 50%; background: #E5484D;
+            animation: blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 0%,100% { opacity: .3 } 50% { opacity: 1 } }
+
+  /* ---- 右：信息栏 ---- */
+  .side { width: 340px; display: flex; flex-direction: column; gap: 18px; }
+  .brand h1 { font-size: 30px; letter-spacing: 4px; }
+  .brand p  { font-size: 13px; color: #8B8578; margin-top: 6px; letter-spacing: 1px; }
+
+  .status-card {
+    background: #fff; border: 2.5px solid #1C1911; border-radius: 18px;
+    box-shadow: 6px 6px 0 rgba(28,25,17,.85); padding: 20px; transform: rotate(-.6deg);
+  }
+  .status-card .big { font-size: 20px; font-weight: 700; line-height: 1.45; min-height: 58px;
+                      display: flex; align-items: center; gap: 10px; }
+  .pulse { width: 12px; height: 12px; border-radius: 50%; background: #7BC47F; flex: none;
+           animation: breath 1.6s ease-in-out infinite; }
+  .pulse.warn { background: #E8A33C; }
+  @keyframes breath { 0%,100% { opacity: .25; transform: scale(.8) } 50% { opacity: 1; transform: scale(1.2) } }
+
+  .steps { background: #fff; border: 2.5px solid #1C1911; border-radius: 18px;
+           box-shadow: 6px 6px 0 rgba(28,25,17,.85); padding: 18px 20px; transform: rotate(.6deg); }
+  .steps h3 { font-size: 13px; color: #D95D39; letter-spacing: 3px; margin-bottom: 10px; }
+  .steps li { list-style: none; font-size: 15px; line-height: 2; }
+  .steps b { display: inline-block; width: 22px; height: 22px; text-align: center; line-height: 20px;
+             background: #1C1911; color: #F5F0E8; border-radius: 50%; font-size: 12px; margin-right: 8px; }
+
+  .recent { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .recent h3 { font-size: 13px; color: #8B8578; letter-spacing: 3px; margin: 4px 0 10px; }
+  .recent-list { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .rec {
+    background: #fff; border: 2px solid #1C1911; border-radius: 14px; padding: 10px 14px;
+    box-shadow: 4px 4px 0 rgba(28,25,17,.8); display: flex; align-items: center; gap: 10px;
+    animation: pop .35s cubic-bezier(.2,.9,.3,1.3);
+  }
+  @keyframes pop { from { transform: scale(.85); opacity: 0 } to { transform: none; opacity: 1 } }
+  .rec .names { font-size: 15px; font-weight: 600; flex: 1; }
+  .rec .sc { font-size: 21px; font-weight: 800; color: #D95D39; }
+
+  /* ---- 配对演出遮罩 ---- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(245,240,232,.96);
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; text-align: center; z-index: 10;
+    animation: rise .5s cubic-bezier(.2,.9,.3,1.15);
+  }
+  .overlay.show { display: flex; }
+  @keyframes rise { from { transform: translateY(50px); opacity: 0 } to { transform: none; opacity: 1 } }
+  .ov-pair { font-size: 40px; font-weight: 700; letter-spacing: 2px; }
+  .ov-score { font-size: 150px; font-weight: 800; line-height: 1; color: #D95D39;
+              text-shadow: 7px 7px 0 rgba(28,25,17,.14); }
+  .ov-score small { font-size: 32px; color: #1C1911; font-weight: 600; }
+  .ov-reason { font-size: 22px; max-width: 640px; line-height: 1.7; }
+  .ov-topic { background: #fff; border: 2.5px solid #1C1911; border-radius: 16px;
+              box-shadow: 6px 6px 0 rgba(28,25,17,.85); padding: 16px 28px;
+              max-width: 620px; transform: rotate(.8deg); }
+  .ov-topic b { display: block; font-size: 14px; color: #D95D39; letter-spacing: 3px; margin-bottom: 6px; }
+  .ov-topic span { font-size: 21px; }
+  .ov-chat { display: flex; flex-direction: column; gap: 10px; max-width: 680px; max-height: 24vh; overflow: hidden; }
+  .ov-line { display: flex; gap: 10px; align-items: flex-start; text-align: left;
+             animation: pop .3s both; }
+  .ov-line .e { font-size: 26px; }
+  .ov-line .t { background: #fff; border: 2px solid #1C1911; border-radius: 4px 14px 14px 14px;
+                padding: 9px 15px; font-size: 17px; line-height: 1.5; }
+  .ov-learned { font-size: 17px; background: #FBE8A6; border: 2px solid #1C1911;
+                border-radius: 999px; padding: 10px 24px; }
+  .ov-wait { font-size: 24px; letter-spacing: 2px; display: flex; align-items: center; gap: 14px; }
+  .spinner { width: 26px; height: 26px; border: 4px solid #1C1911; border-top-color: transparent;
+             border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg) } }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="cam-card">
+      <img src="/stream.mjpg" alt="camera">
+      <div class="cam-tag"><span class="reddot"></span>LINK 2 PRO · 实时画面</div>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="brand">
+      <h1>ForkWorld</h1>
+      <p>合影配对 · 你的世界，就是你的自我介绍</p>
+    </div>
+
+    <div class="status-card">
+      <div class="big"><span class="pulse" id="pulse"></span><span id="status">等待合影 · 把二维码举到镜头前</span></div>
+    </div>
+
+    <div class="steps">
+      <h3>怎么玩</h3>
+      <li><b>1</b>手机打开 <span id="url">:8600</span> 选你的 agent</li>
+      <li><b>2</b>两个人一起把二维码举到镜头前</li>
+      <li><b>3</b>看你们的灵魂契不契合</li>
+    </div>
+
+    <div class="recent">
+      <h3>最近的相遇</h3>
+      <div class="recent-list" id="recent"></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="ov-wait" id="ov_wait"><span class="spinner"></span>两个世界正在相遇…</div>
+    <div id="ov_body" style="display:none; flex-direction:column; align-items:center; gap:20px;">
+      <div class="ov-pair" id="ov_pair"></div>
+      <div class="ov-score"><span id="ov_score">0</span><small> / 100 灵魂契合</small></div>
+      <div class="ov-reason" id="ov_reason"></div>
+      <div class="ov-topic"><b>值得聊的那件事</b><span id="ov_topic"></span></div>
+      <div class="ov-chat" id="ov_chat"></div>
+      <div class="ov-learned" id="ov_learned" style="display:none"></div>
+    </div>
+  </div>
+
+<script>
+  const BACKEND = location.protocol + "//" + location.hostname + ":8000";
+  document.getElementById("url").textContent = location.hostname + ":8600";
+
+  let agents = {};
+  fetch(BACKEND + "/api/agents").then(r => r.json())
+    .then(list => list.forEach(a => agents[a.id] = a)).catch(() => {});
+
+  const $ = id => document.getElementById(id);
+  let hideTimer = null;
+
+  function agentLabel(id) {
+    const a = agents[id];
+    return a ? a.emoji + " " + a.name : "Agent " + id;
+  }
+
+  function setStatus(text, warn) {
+    $("status").textContent = text;
+    $("pulse").classList.toggle("warn", !!warn);
+  }
+
+  function countUp(el, target) {
+    let v = 0; const step = Math.max(1, Math.round(target / 50));
+    const t = setInterval(() => {
+      v = Math.min(target, v + step);
+      el.textContent = v;
+      if (v >= target) clearInterval(t);
+    }, 26);
+  }
+
+  function showPairing() {
+    clearTimeout(hideTimer);
+    $("ov_wait").style.display = "flex";
+    $("ov_body").style.display = "none";
+    $("overlay").classList.add("show");
+    setStatus("捕捉到两个世界！正在生成相遇故事…", true);
+  }
+
+  function showResult(r) {
+    clearTimeout(hideTimer);
+    $("ov_wait").style.display = "none";
+    $("ov_body").style.display = "flex";
+    const names = (r.agents || []).map(a => a.emoji + " " + a.name).join("　×　");
+    $("ov_pair").textContent = names;
+    $("ov_reason").textContent = (r.resonance || {}).reason || "";
+    $("ov_topic").textContent = (r.resonance || {}).topic || "";
+    const chat = $("ov_chat"); chat.innerHTML = "";
+    (r.lines || []).forEach((l, i) => {
+      const d = document.createElement("div"); d.className = "ov-line";
+      d.style.animationDelay = (0.3 + i * 0.6) + "s";
+      d.innerHTML = '<span class="e"></span><span class="t"></span>';
+      d.querySelector(".e").textContent = l.emoji || "";
+      d.querySelector(".t").textContent = l.name + "：" + l.text;
+      chat.appendChild(d);
+    });
+    const lb = $("ov_learned");
+    if (r.learned) { lb.style.display = ""; lb.textContent = "✨ " + r.learned.learner + " 学会了「" + r.learned.skill + "」"; }
+    else lb.style.display = "none";
+    $("overlay").classList.add("show");
+    countUp($("ov_score"), (r.resonance || {}).score || 0);
+    const sc = (r.resonance || {}).score || 0;
+    addRecent(names, sc);
+    setStatus("灵魂契合 " + sc + " 分！下一组请举牌", false);
+    hideTimer = setTimeout(() => $("overlay").classList.remove("show"), 15000);
+  }
+
+  function addRecent(names, score) {
+    const d = document.createElement("div"); d.className = "rec";
+    d.innerHTML = '<span class="names"></span><span class="sc"></span>';
+    d.querySelector(".names").textContent = names;
+    d.querySelector(".sc").textContent = score;
+    const list = $("recent");
+    list.prepend(d);
+    while (list.children.length > 6) list.lastChild.remove();
+  }
+
+  function connect() {
+    const es = new EventSource("/events");
+    es.onmessage = e => {
+      const ev = JSON.parse(e.data);
+      if (ev.type === "waiting") {
+        setStatus("已看到 " + agentLabel(ev.agent_id) + " · 等待另一位举牌…", true);
+      } else if (ev.type === "pairing") {
+        showPairing();
+      } else if (ev.type === "pair") {
+        showResult(ev.result);
+      } else if (ev.type === "pair_failed") {
+        $("overlay").classList.remove("show");
+        setStatus("生成失败了，再举一次试试", true);
+      }
+    };
+    es.onerror = () => { es.close(); setTimeout(connect, 2000); };
+  }
+  connect();
+</script>
+</body>
+</html>

@@ -55,6 +55,18 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 ⚠️ 依赖锁 `opencv-contrib-python==4.11.0.86`：OpenCV 5.0 的 wechat_qrcode 模型加载 Python 绑定是坏的。
 
+## 摊位大屏（daemon 内嵌）
+
+daemon 启动即带大屏服务（`--serve-port 8700`，0 关闭）。Link2 同一时刻只能有一个视频
+消费者（SDK 警告），所以 daemon 独占相机并二次分发：
+
+- `http://<IP>:8700/` 大屏页：**摄像头实时画面（带识别框 + AGENT 标签叠加）**、
+  状态卡（等待合影 / 已看到某人 / 契合结果）、玩法三步、最近的相遇列表
+- 配对触发 → 全屏演出：先「两个世界正在相遇…」spinner，结果出来后比分滚动 +
+  相遇对话逐条弹出，15 秒后自动收起回到直播
+- 实现：`/stream.mjpg`（MJPEG 多客户端）+ `/events`（SSE）+ `bigscreen.html`，
+  配对上报在后台线程跑，视频流不卡顿
+
 ## 设备二维码展示服务
 
 ```bash
