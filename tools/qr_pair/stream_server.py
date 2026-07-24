@@ -46,6 +46,12 @@ def broadcast(event: dict):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionResetError, BrokenPipeError, TimeoutError):
+            pass   # 客户端断开是常态，别刷 traceback
+
     def do_GET(self):
         if self.path == "/" or self.path == "/index.html":
             body = (BASE_DIR / "bigscreen.html").read_bytes()

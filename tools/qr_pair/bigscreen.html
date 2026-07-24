@@ -99,12 +99,22 @@
   .spinner { width: 26px; height: 26px; border: 4px solid #1C1911; border-top-color: transparent;
              border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg) } }
+
+  /* 窄屏/竖屏（内嵌预览、竖置大屏）：改上下布局 */
+  @media (max-width: 980px) {
+    body { flex-direction: column; overflow-y: auto; }
+    .stage { flex: none; }
+    .cam-card { height: 44vh; flex: none; }
+    .side { width: 100%; }
+    .ov-score { font-size: 96px; }
+    .ov-pair { font-size: 28px; }
+  }
 </style>
 </head>
 <body>
   <div class="stage">
     <div class="cam-card">
-      <img src="/stream.mjpg" alt="camera">
+      <img id="cam" alt="camera">
       <div class="cam-tag"><span class="reddot"></span>LINK 2 PRO · 实时画面</div>
     </div>
   </div>
@@ -145,8 +155,13 @@
   </div>
 
 <script>
-  const BACKEND = location.protocol + "//" + location.hostname + ":8000";
-  document.getElementById("url").textContent = location.hostname + ":8600";
+  // 支持双开法：http://<IP>:8700/（正式）或直接双击打开 html 文件（回落到本机服务）
+  const HOST = (location.protocol === "file:" || !location.hostname)
+      ? "127.0.0.1" : location.hostname;
+  const BASE = (location.protocol === "file:") ? "http://" + HOST + ":8700" : "";
+  const BACKEND = "http://" + HOST + ":8000";
+  document.getElementById("cam").src = BASE + "/stream.mjpg";
+  document.getElementById("url").textContent = HOST + ":8600";
 
   let agents = {};
   fetch(BACKEND + "/api/agents").then(r => r.json())
@@ -221,7 +236,7 @@
   }
 
   function connect() {
-    const es = new EventSource("/events");
+    const es = new EventSource(BASE + "/events");
     es.onmessage = e => {
       const ev = JSON.parse(e.data);
       if (ev.type === "waiting") {

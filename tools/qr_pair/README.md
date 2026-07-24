@@ -55,6 +55,15 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 ⚠️ 依赖锁 `opencv-contrib-python==4.11.0.86`：OpenCV 5.0 的 wechat_qrcode 模型加载 Python 绑定是坏的。
 
+## 相机取流（重要坑）
+
+- **必须用 ffmpeg 按名字取流**（`capture.py`），不要用 cv2.VideoCapture 按序号：
+  cv2 的 AVFoundation 序号和 ffmpeg 枚举序号**不一致**，之前按 ffmpeg 序号用 cv2
+  打开，实际开到了 MacBook 内置摄像头
+- 启动时自动探测设备支持模式再取流（Link 2 Pro 实测原生 1440x720@25fps uyvy422）
+- 大屏显示默认**镜像**（`config.MIRROR_DISPLAY`，像镜子，识别框坐标同步翻转）；
+  识别永远用原始帧——镜像的二维码解不出来
+
 ## 摊位大屏（daemon 内嵌）
 
 daemon 启动即带大屏服务（`--serve-port 8700`，0 关闭）。Link2 同一时刻只能有一个视频

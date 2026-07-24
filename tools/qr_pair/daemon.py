@@ -19,7 +19,7 @@ import httpx
 
 import stream_server
 from capture import Camera
-from config import BACKEND_URL, DECODE_FPS, PAIR_ENDPOINT, QR_PREFIX
+from config import BACKEND_URL, DECODE_FPS, MIRROR_DISPLAY, PAIR_ENDPOINT, QR_PREFIX
 from decoder import QRDecoder
 from fsm import PairFSM
 
@@ -27,20 +27,29 @@ INK = (17, 25, 28)          # BGR：墨色
 ACCENT = (57, 93, 217)      # BGR：#D95D39 朱红
 
 
-def annotate(frame, results):
-    """在画面上叠加识别框 + 载荷标签（大屏观感）。"""
+def annotate(frame, results, mirror: bool = MIRROR_DISPLAY):
+    """生成大屏显示帧：可选镜像（像镜子）+ 识别框 + 载荷标签。
+
+    识别永远在原始帧上做（镜像的二维码解不出来），只有显示做翻转，
+    识别框坐标同步做 x 翻转，标签文字保持正向可读。
+    """
+    vis = cv2.flip(frame, 1) if mirror else frame.copy()
+    w = frame.shape[1]
     for text, pts in results:
         label = text.removeprefix(QR_PREFIX)
-        if pts is not None:
-            p = pts.astype(int).reshape(-1, 2)
-            cv2.polylines(frame, [p], True, ACCENT, 4)
-            x, y = int(p[:, 0].min()), int(p[:, 1].min())
-            tag = f"AGENT {label}"
-            (tw, th), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
-            cv2.rectangle(frame, (x, y - th - 18), (x + tw + 16, y - 2), ACCENT, -1)
-            cv2.putText(frame, tag, (x + 8, y - 12),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    return frame
+        if pts is None:
+            continue
+        p = pts.astype(int).reshape(-1, 2).copy()
+        if mirror:
+            p[:, 0] = w - 1 - p[:, 0]
+        cv2.polylines(vis, [p], True, ACCENT, 4)
+        x, y = int(p[:, 0].min()), int(p[:, 1].min())
+        tag = f"AGENT {label}"
+        (tw, th), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+        cv2.rectangle(vis, (x, y - th - 18), (x + tw + 16, y - 2), ACCENT, -1)
+        cv2.putText(vis, tag, (x + 8, y - 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    return vis
 
 
 def post_pair(backend: str, payload_a: str, payload_b: str) -> dict | None:
@@ -88,9 +97,11 @@ class FrameSource:
 
     def __init__(self, source: str | None, index: int | None):
         self.is_image = False
+        self.cam = None
+        self.vid = None
         if source is None:
             self.cam = Camera(index=index)
-            print(f"[camera] 已打开 avfoundation index={self.cam.index}")
+            print(f"[camera] 已打开「{__import__('config').CAMERA_NAME}」ffmpeg avfoundation index={self.cam.index}")
         elif source.lower().endswith((".png", ".jpg", ".jpeg")):
             self.frame = cv2.imread(source)
             if self.frame is None:
@@ -98,20 +109,23 @@ class FrameSource:
             self.is_image = True
             print(f"[source] 图片回放：{source}")
         else:
-            self.cam = Camera.__new__(Camera)
-            self.cam.cap = cv2.VideoCapture(source)
-            self.cam.index = -1
-            if not self.cam.cap.isOpened():
+            self.vid = cv2.VideoCapture(source)
+            if not self.vid.isOpened():
                 raise RuntimeError(f"打不开视频 {source}")
             print(f"[source] 视频回放：{source}")
 
     def read(self):
         if self.is_image:
             return self.frame.copy()
+        if self.vid is not None:
+            ok, f = self.vid.read()
+            return f if ok else None
         return self.cam.read()
 
     def release(self):
-        if not self.is_image:
+        if self.vid is not None:
+            self.vid.release()
+        if self.cam is not None:
             self.cam.release()
 
 
@@ -158,7 +172,7 @@ def main():
             events = fsm.feed(payloads)
 
             if args.serve_port:
-                vis = annotate(frame.copy(), results)
+                vis = annotate(frame, results)
                 ok, jpg = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ok:
                     stream_server.set_frame(jpg.tobytes())

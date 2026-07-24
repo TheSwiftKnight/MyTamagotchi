@@ -8,7 +8,9 @@ BASE_DIR = Path(__file__).resolve().parent
 CAMERA_NAME = "Insta360 Link 2"   # avfoundation 设备名（Link 2 Pro 也显示为这个名字）
 FRAME_WIDTH = 1920
 FRAME_HEIGHT = 1080
+CAMERA_FPS = 30                   # ffmpeg 取流帧率
 DECODE_FPS = 15                   # 解码帧率上限（采集 30fps，隔帧解码足够）
+MIRROR_DISPLAY = True             # 大屏显示做镜像（像镜子）；识别始终用原始帧
 
 # ---------- QR 协议 ----------
 QR_PREFIX = "FW1:"                # 载荷格式：FW1:<agent_id>，越短越好（低版本 QR 远距离可解）
