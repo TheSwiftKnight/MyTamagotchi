@@ -640,7 +640,24 @@ Job metadata 會存到磁碟，因此具有基本的重啟恢復與 retry 能力
 | Schema 沒有統一驗證 | JSON Schema 存在，但 API 沒有統一經 validator 驗證 |
 | 無身份驗證 | `ME_USER_ID=1`、CORS `*`，屬於單使用者 Demo 設計--> 以user id區分不同user |
 | SQLite 寫鎖競爭 | 45 秒的世界 tick 與 `/chat`、`/api/pair` 會搶寫鎖。已修（見下），但併發再上去仍是瓶頸，上雲時建議換 Postgres |
-| 配對結果只在記憶體 | `_pair_cache` / `_pair_latest` 是行程內 dict，後端一重啟就沒了。Demo 夠用，但多開 worker 會失效（必須單 worker 跑） |
+| 配對結果只在記憶體 | `_pair_cache` / `_pair_latest` 是行程內 dict，後端一重啟就沒了。Demo 夠用，但多開 worker 會失效（必須單 worker 跑）。`GET /api/worlds` 的 visits 也來自它，重啟後會空 |
+| 手機端與 codex 分支分叉 | `codex/agentland-unified-plaza-20260724`（章程，生產站 agentland.throughtheglass.art 跑的就是它）**未併入 main**：它的 `worldApi.ts` 指向 8787 的 Node world-engine，不是 FastAPI。main 這邊的 `ConcentricPlazaMap` 有 `conversePair`/`converseLine`（接 `/api/plaza/converse`），codex 那邊有 `skills`/`onOpenSkill` 與新素材 `unified-concentric-town`。**兩邊朝不同方向改，整體換任一邊都會丟功能**，要合得逐項處理 |
+
+### 5.2 大屏世界註冊表 `GET /api/worlds`
+
+大屏（`frontends/bigscreen`）經 `js/shared/data.js` 拉這個接口，不可達時回退
+本地靜態 `data/worlds.json`，離線也能跑。
+
+- **一個 agent = 一個世界**，即時讀 DB；地標取自該 agent 的技能
+- **地圖幾何（`region` / `slot_tiles`）沿用靜態檔當模板**：六環版
+  （`global.html` + `light_app.js`）不需要幾何，但保留的 Phaser 版
+  （`global_phaser.html`）需要，複用模板讓兩版都不壞
+- **`visits` 來自二維碼配對**：配過的兩個世界之間連線，遊記用契合度理由、
+  氣泡用相遇台詞
+
+改 `light_app.js` 的入住邏輯時注意：**不要再截斷世界列表**（原本
+`slice(0, RINGS.length)` 只放前 6 個，是為 6 個靜態世界寫的）——接實時數據後
+agent 會持續增加，截斷會讓演示現場新捕獲的宠物永遠不出現在大屏上。
 
 ### 5.1 SQLite 寫鎖競爭是怎麼修的
 
