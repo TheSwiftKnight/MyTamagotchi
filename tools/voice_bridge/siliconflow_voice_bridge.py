@@ -28,6 +28,7 @@ key 不能烧进固件(泄露 + 改 key 要重烧)，所以放一个 Mac 侧桥�
 """
 
 import io
+import struct
 import socket
 import threading
 import os
@@ -137,16 +138,21 @@ def asr(pcm: bytes) -> str:
 # ────────────────────────── 对话(只走后端, 无 StepFun) ──────────────────────────
 def chat(text: str) -> str:
     t0 = time.time()
-    try:
-        r = requests.post(BACKEND_CHAT, json={"text": text}, timeout=40)
-        r.raise_for_status()
-        reply = (r.json().get("reply") or "").strip()
-        if reply:
-            print(f"  [chat {time.time()-t0:.1f}s · 后端豆豆] {reply!r}")
-            return reply
-        print("  [chat] 后端回复为空 -> 用本地兜底短句")
-    except Exception as e:
-        print(f"  [chat] 后端不可用({type(e).__name__}: {str(e)[:80]}) -> 本地兜底短句(不退StepFun)")
+    # 实测后端偶发挂死(SQLite 写锁抢占) -> 收紧超时并重试一次，别让板子干等 40s
+    for attempt in (1, 2):
+        try:
+            r = requests.post(BACKEND_CHAT, json={"text": text}, timeout=12)
+            r.raise_for_status()
+            reply = (r.json().get("reply") or "").strip()
+            if reply:
+                print(f"  [chat {time.time()-t0:.1f}s · 后端豆豆 第{attempt}次] {reply!r}")
+                return reply
+            print(f"  [chat] 第{attempt}次回复为空")
+        except Exception as e:
+            print(f"  [chat] 第{attempt}次失败({type(e).__name__}: {str(e)[:60]})")
+        if attempt == 1:
+            time.sleep(0.4)
+    print("  [chat] 两次都失败 -> 本地兜底短句(不退StepFun)")
     return FALLBACK_LINE
 
 
@@ -172,8 +178,29 @@ def tts(text: str) -> bytes:
     if data[:4] == b"RIFF":
         idx = data.find(b"data")
         data = data[idx + 8:] if idx != -1 else data[44:]
-    print(f"  [tts {time.time()-t0:.1f}s · CosyVoice2 {ct}] {len(data)//32}ms 音频@16k")
+    data = _normalize(data)
+    print(f"  [tts {time.time()-t0:.1f}s · CosyVoice2 {ct}] {len(data)//32}ms 音频@16k(已归一化)")
     return data
+
+
+def _normalize(pcm: bytes, target: int = 26000) -> bytes:
+    """峰值归一化到 ~80% 满幅。板载小喇叭功率低，CosyVoice 原始输出峰值仅约
+    6000/32767(19%)，直接播基本听不见。最大增益封顶 6x 以免放大底噪。"""
+    if len(pcm) < 2:
+        return pcm
+    n = len(pcm) // 2
+    vals = struct.unpack(f"<{n}h", pcm[:n * 2])
+    peak = max((abs(v) for v in vals), default=0)
+    if peak < 200:                      # 近乎静音，放大无意义
+        return pcm
+    gain = min(target / peak, 6.0)
+    if gain <= 1.05:
+        return pcm
+    out = bytearray(n * 2)
+    struct.pack_into(f"<{n}h", out, 0,
+                     *[max(-32768, min(32767, int(v * gain))) for v in vals])
+    print(f"  [gain] 峰值 {peak} -> {int(peak*gain)} (x{gain:.1f})")
+    return bytes(out)
 
 
 # ────────────────────────── 流水线 ──────────────────────────
