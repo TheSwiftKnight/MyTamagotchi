@@ -50,12 +50,41 @@ test("pause, run, reset, and visitor chat remain explicit API operations", async
   const { engine } = await makeEngine();
   await engine.setStatus("paused");
   assert.equal(engine.state.meta.status, "paused");
-  const exchange = await engine.chatWithAgent("miko", "What should the town remember?");
+  const exchange = await engine.chatWithAgent("miko", "请记住我喜欢清晨散步。");
   assert.equal(exchange.memoryAccepted, true);
-  assert.equal(engine.state.agents.find(agent => agent.id === "miko").memories.at(-1).type, "visitor");
+  assert.equal(engine.getAgentConversation("miko").messages.length, 2);
+  assert.equal(engine.getAgentConversation("miko").memories[0].text, "请记住我喜欢清晨散步。");
   await engine.reset();
   assert.equal(engine.state.meta.tick, 0);
   assert.equal(engine.state.meta.status, "running");
+});
+
+test("chat history, relevant memory recall, and deletion persist", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "forkworld-chat-"));
+  const storagePath = path.join(directory, "state.json");
+  let recalled = [];
+  const engine = new WorldEngine({
+    storagePath,
+    agentChatGenerator: async context => {
+      recalled = context.memories;
+      return recalled.length ? `我记得：${recalled[0].text}` : "我会认真听。";
+    },
+  });
+  await engine.init();
+  assert.ok(engine.state.agents.some(agent => agent.id === "dotti"));
+
+  await engine.chatWithAgent("dotti", "我喜欢周末去公园跑步。");
+  const followUp = await engine.chatWithAgent("dotti", "你还记得我喜欢在哪里跑步吗？", { remember: false });
+  assert.ok(followUp.response.includes("公园跑步"));
+  assert.equal(recalled[0].text, "我喜欢周末去公园跑步。");
+
+  const reloaded = new WorldEngine({ storagePath });
+  await reloaded.init();
+  const conversation = reloaded.getAgentConversation("dotti");
+  assert.equal(conversation.messages.length, 4);
+  assert.equal(conversation.memories.length, 1);
+  assert.equal(await reloaded.deleteLongTermMemory("dotti", conversation.memories[0].id), true);
+  assert.equal(reloaded.getAgentConversation("dotti").memories.length, 0);
 });
 
 test("an injected LLM narrative stays behind the same world interface", async () => {

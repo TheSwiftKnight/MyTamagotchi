@@ -7,7 +7,8 @@ does not import from it.
 The engine keeps five concerns separate:
 
 1. **Persona** — stable drives, values, voice, goals, and slowly changing traits.
-2. **Memory** — bounded episodic memories plus explicit visitor memories.
+2. **Memory** — bounded simulation memories plus separate persistent user
+   conversations and user-controlled long-term memories.
 3. **Relationships** — directed affinity, trust, and shared-event history.
 4. **Simulation** — round scheduling, event selection, dialogue, action, and reflection.
 5. **Civilization** — eras, public metrics, institutions, resources, tensions, and canon.
@@ -48,6 +49,11 @@ base URL, and model. Existing DashScope, DeepSeek, and GMI variable names are
 also recognized. A separate environment file can be loaded explicitly with
 `WORLD_ENV_FILE=/absolute/path/to/.env npm run backend`.
 
+Personal Agent chat has its own switch, `AGENT_CHAT_LLM_ENABLED=true`. It can
+use the configured model while autonomous civilization narration remains
+deterministic. If the provider is disabled or unavailable, chat still works
+with local memory retrieval and a deterministic companion reply.
+
 ## API
 
 - `GET /api/health`
@@ -58,7 +64,10 @@ also recognized. A separate environment file can be loaded explicitly with
 - `POST /api/world/pause`
 - `POST /api/world/reset`
 - `GET /api/agents/:id`
-- `POST /api/agents/:id/chat` with `{ "message": "..." }`
+- `GET /api/agents/:id/conversation`
+- `POST /api/agents/:id/chat` with `{ "message": "...", "remember": true }`
+- `POST /api/agents/:id/memories` with `{ "text": "..." }`
+- `DELETE /api/agents/:id/memories/:memoryId`
 - `POST /api/pets` with raw JPEG, PNG, WebP, HEIC, or HEIF bytes (maximum 12MB)
 - `GET /api/pets/:id?accessToken=...`
 - `POST /api/pets/:id/retry?accessToken=...`

@@ -7,7 +7,7 @@ import {
   Lock, Eye, Layers, ArrowRight, Radio, Cpu, Compass, Settings,
   Volume2, RotateCcw, Move, Trash2, Package, Music,
   Lightbulb, Headphones, Mic, Rocket, Telescope, Bot, Dumbbell, Hammer,
-  Image as ImageIcon, Brush, Scissors, RotateCw, FlipHorizontal,
+  Image as ImageIcon, Brush, Scissors, RotateCw, FlipHorizontal, Brain, Send,
   ChevronDown, ChevronUp, ZoomIn, ZoomOut, Undo2, Loader2
 } from "lucide-react";
 import {
@@ -17,7 +17,7 @@ import {
   type StyleAgentIdentitySeed,
 } from "./CharacterSettingsScreen";
 import { useWorldEvolution } from "./useWorldEvolution";
-import type { WorldAgent } from "./worldApi";
+import { worldApi, type AgentConversation, type AgentChatMessage, type WorldAgent } from "./worldApi";
 import { petApi, waitForPet, type PetAsset, type PetJob } from "./petApi";
 import {
   WORLD_STYLE_SKILLS,
@@ -6096,7 +6096,7 @@ function EnvironmentObjectsArchive() {
   );
 }
 
-type AgentArchiveSection = "agents" | "objects" | "identity" | "chain" | "device";
+type AgentArchiveSection = "agents" | "chat" | "objects" | "identity" | "chain" | "device";
 
 function AgentArchiveTabs({ active, onChange }: {
   active: AgentArchiveSection;
@@ -6104,6 +6104,7 @@ function AgentArchiveTabs({ active, onChange }: {
 }) {
   const tabs: { id: AgentArchiveSection; label: string }[] = [
     { id: "agents", label: "Agents" },
+    { id: "chat", label: "Talk" },
     { id: "objects", label: "Objects" },
     { id: "identity", label: "Identity" },
     { id: "chain", label: "Chain" },
@@ -6111,7 +6112,7 @@ function AgentArchiveTabs({ active, onChange }: {
   ];
 
   return (
-    <div className="grid grid-cols-5 gap-1.5 px-5 pb-2">
+    <div className="flex gap-1.5 overflow-x-auto px-5 pb-2">
       {tabs.map(tab => {
         const selected = active === tab.id;
         return (
@@ -6119,10 +6120,10 @@ function AgentArchiveTabs({ active, onChange }: {
             key={tab.id}
             type="button"
             onClick={() => onChange(tab.id)}
-            className="w-full rounded-xl"
+            className="shrink-0 rounded-xl"
             style={{
-              minWidth: 0,
-              padding: "7px 2px",
+              minWidth: 62,
+              padding: "7px 8px",
               background: selected ? "#1C1911" : "#EAE5DA",
               color: selected ? "white" : "#7A7468",
               fontFamily: "Caveat,cursive",
@@ -6133,6 +6134,331 @@ function AgentArchiveTabs({ active, onChange }: {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+const CHAT_AGENT_PROFILES = [
+  "dotti", "miko", "shutter", "nana", "folio", "luma", "beat",
+  "sprig", "tock", "keylo", "orbit", "joypad", "mizzle",
+].map(id => AGENT_PROFILES.find(profile => profile.id === id)).filter(Boolean) as AgentProfile[];
+
+function memoryDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+}
+
+function AgentConversationScreen({ archiveTabs }: { archiveTabs?: React.ReactNode }) {
+  const [agentId, setAgentId] = useState("dotti");
+  const [conversation, setConversation] = useState<AgentConversation | null>(null);
+  const [draft, setDraft] = useState("");
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [showMemories, setShowMemories] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const messageListRef = useRef<HTMLDivElement>(null);
+  const profile = CHAT_AGENT_PROFILES.find(item => item.id === agentId) || CHAT_AGENT_PROFILES[0];
+
+  const loadConversation = async (nextAgentId = agentId) => {
+    setError("");
+    try {
+      const next = await worldApi.getAgentConversation(nextAgentId);
+      setConversation(next);
+    } catch (loadError) {
+      setConversation(null);
+      setError(loadError instanceof Error ? loadError.message : "暂时无法连接 Agent 记忆");
+    }
+  };
+
+  useEffect(() => {
+    setConversation(null);
+    setShowMemories(false);
+    void loadConversation(agentId);
+  }, [agentId]);
+
+  useEffect(() => {
+    if (showMemories) return;
+    messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight, behavior: "smooth" });
+  }, [conversation?.messages.length, showMemories]);
+
+  const sendMessage = async () => {
+    const text = draft.trim();
+    if (!text || busy || !conversation) return;
+    const optimistic: AgentChatMessage = {
+      id: `pending-${Date.now()}`,
+      role: "user",
+      text,
+      createdAt: new Date().toISOString(),
+      recalledMemoryIds: [],
+    };
+    setDraft("");
+    setBusy(true);
+    setError("");
+    setConversation(current => current ? {
+      ...current,
+      messages: [...current.messages, optimistic],
+    } : current);
+    try {
+      await worldApi.chatWithAgent(agentId, text, remember);
+      await loadConversation(agentId);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "消息没有送达");
+      await loadConversation(agentId);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addMemory = async () => {
+    const text = memoryDraft.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await worldApi.addAgentMemory(agentId, text);
+      setMemoryDraft("");
+      await loadConversation(agentId);
+    } catch (memoryError) {
+      setError(memoryError instanceof Error ? memoryError.message : "这段记忆没有保存");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeMemory = async (memoryId: string) => {
+    if (!window.confirm("确认让这个 Agent 忘记这段长期记忆吗？")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await worldApi.deleteAgentMemory(agentId, memoryId);
+      await loadConversation(agentId);
+    } catch (memoryError) {
+      setError(memoryError instanceof Error ? memoryError.message : "这段记忆暂时无法删除");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden" style={{ background: "#F5F0E8", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
+      <PhoneStatusBar showConnectivity={false}/>
+      <div className="flex items-center justify-between px-5 py-2">
+        <span className="w-5"/>
+        <div className="text-center">
+          <p style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-title)", fontWeight: 700 }}>Talk with my Agent</p>
+          <p style={{ color: "#6B9E7A", fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>CONVERSATION · LONG MEMORY</p>
+        </div>
+        <Brain size={16} color="#6B9E7A"/>
+      </div>
+      {archiveTabs}
+
+      <div className="flex gap-2 overflow-x-auto px-5 pb-2">
+        {CHAT_AGENT_PROFILES.map(item => {
+          const selected = item.id === agentId;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setAgentId(item.id)}
+              aria-label={`与 ${item.name} 对话`}
+              className="flex shrink-0 items-center gap-2 rounded-2xl px-2.5 py-2"
+              style={{
+                color: selected ? "#FAF6EF" : "#5F594F",
+                background: selected ? item.color : "#FAF6EF",
+                border: `1px solid ${selected ? item.color : "rgba(28,25,17,.1)"}`,
+                minWidth: 96,
+              }}
+            >
+              <svg width="30" height="30" viewBox="-40 -40 80 80" aria-hidden="true">
+                {item.render(.48, true)}
+              </svg>
+              <span className="text-left">
+                <strong className="block" style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-label)" }}>{item.name}</strong>
+                <small className="block truncate" style={{ opacity: .72, fontSize: 8, maxWidth: 62 }}>{item.role}</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <section
+        className="mx-5 mb-2 flex items-center justify-between rounded-2xl px-3 py-2.5"
+        style={{ background: "#FAF6EF", border: `1px solid ${profile.color}30` }}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ background: `${profile.color}16` }}>
+            <svg width="36" height="36" viewBox="-40 -40 80 80" aria-hidden="true">{profile.render(.54, true)}</svg>
+          </span>
+          <span className="min-w-0">
+            <strong className="block truncate" style={{ color: "#1C1911", fontSize: "var(--ui-font-caption)" }}>
+              {conversation?.agent.name || profile.name} 正在听
+            </strong>
+            <small className="mt-1 block truncate" style={{ color: "#7A7468", fontSize: "var(--ui-font-micro)" }}>
+              {conversation?.agent.location || profile.world} · {conversation?.messages.length || 0} 条对话
+            </small>
+          </span>
+        </span>
+        <button
+          type="button"
+          aria-pressed={showMemories}
+          onClick={() => setShowMemories(current => !current)}
+          className="ml-2 flex shrink-0 items-center gap-1 rounded-xl px-2.5 py-2"
+          style={{
+            color: showMemories ? "#FAF6EF" : "#6B9E7A",
+            background: showMemories ? "#6B9E7A" : "#6B9E7A12",
+            fontSize: "var(--ui-font-micro)",
+          }}
+        >
+          <Brain size={12}/>{conversation?.memories.length || 0} 段记忆
+        </button>
+      </section>
+
+      {error && (
+        <div className="mx-5 mb-2 rounded-xl px-3 py-2" style={{ color: "#C75D4D", background: "#C75D4D10", fontSize: "var(--ui-font-micro)" }}>
+          {error}
+        </div>
+      )}
+
+      {showMemories ? (
+        <div className="flex-1 overflow-y-auto px-5 pb-3">
+          <div className="rounded-2xl p-3" style={{ background: "#FAF6EF", border: "1px solid rgba(28,25,17,.1)" }}>
+            <p style={{ color: "#1C1911", fontSize: "var(--ui-font-caption)" }}>主动告诉 {profile.name} 一件要长期记住的事</p>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={memoryDraft}
+                onChange={event => setMemoryDraft(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) void addMemory();
+                }}
+                placeholder="例如：我习惯周六早上去跑步"
+                className="min-w-0 flex-1 rounded-xl px-3 py-2 outline-none"
+                style={{ color: "#1C1911", background: "#F5F0E8", border: "1px solid rgba(28,25,17,.1)", fontSize: "var(--ui-font-caption)" }}
+              />
+              <button type="button" disabled={!memoryDraft.trim() || busy} onClick={() => void addMemory()}
+                className="rounded-xl px-3" style={{ color: "white", background: "#6B9E7A", opacity: !memoryDraft.trim() || busy ? .45 : 1 }}>
+                <Plus size={15}/>
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-2 grid gap-2">
+            {conversation?.memories.map(memory => (
+              <article key={memory.id} className="rounded-2xl p-3" style={{ background: "#FAF6EF", border: `1px solid ${memory.pinned ? "#6B9E7A35" : "rgba(28,25,17,.1)"}` }}>
+                <div className="flex items-start justify-between gap-3">
+                  <p style={{ color: "#1C1911", fontSize: "var(--ui-font-caption)", lineHeight: 1.65 }}>{memory.text}</p>
+                  <button type="button" aria-label="删除这段长期记忆" disabled={busy} onClick={() => void removeMemory(memory.id)}
+                    className="shrink-0 rounded-lg p-1.5" style={{ color: "#A69D91", background: "#F0EBE2" }}>
+                    <Trash2 size={12}/>
+                  </button>
+                </div>
+                <div className="mt-2 flex items-center justify-between" style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)" }}>
+                  <span>{memory.source === "manual" ? "主动记忆" : "来自对话"} · 重要度 {memory.importance}</span>
+                  <span>{memoryDate(memory.createdAt)}{memory.recallCount ? ` · 已召回 ${memory.recallCount} 次` : ""}</span>
+                </div>
+              </article>
+            ))}
+            {conversation && !conversation.memories.length && (
+              <div className="rounded-2xl px-4 py-8 text-center" style={{ color: "#8E867A", background: "#FAF6EF", fontSize: "var(--ui-font-caption)" }}>
+                还没有长期记忆。你可以主动添加，也可以在对话时开启“记住这句话”。
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div ref={messageListRef} className="flex-1 overflow-y-auto px-5 py-2">
+            {!conversation?.messages.length ? (
+              <div className="flex h-full flex-col items-center justify-center text-center">
+                <svg width="82" height="82" viewBox="-40 -40 80 80" aria-hidden="true">{profile.render(.92, true)}</svg>
+                <p className="mt-3" style={{ color: "#1C1911", fontSize: "var(--ui-font-label)" }}>从一件小事开始聊吧</p>
+                <p className="mt-2 max-w-[260px]" style={{ color: "#7A7468", fontSize: "var(--ui-font-caption)", lineHeight: 1.6 }}>
+                  {profile.name} 会保留对话历史，并在以后相关的话题里召回你允许保存的记忆。
+                </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {["今天有点累", "记住我喜欢晨跑", "陪我制定一个小目标"].map(prompt => (
+                    <button key={prompt} type="button" onClick={() => setDraft(prompt)}
+                      className="rounded-full px-3 py-2" style={{ color: profile.color, background: `${profile.color}10`, border: `1px solid ${profile.color}30`, fontSize: "var(--ui-font-micro)" }}>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : conversation.messages.map(message => (
+              <div key={message.id} className={`mb-3 flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div
+                  className="max-w-[82%] rounded-2xl px-3 py-2.5"
+                  style={{
+                    color: message.role === "user" ? "white" : "#1C1911",
+                    background: message.role === "user" ? profile.color : "#FAF6EF",
+                    border: message.role === "user" ? "none" : "1px solid rgba(28,25,17,.1)",
+                    borderBottomRightRadius: message.role === "user" ? 5 : 16,
+                    borderBottomLeftRadius: message.role === "agent" ? 5 : 16,
+                  }}
+                >
+                  <p style={{ fontSize: "var(--ui-font-caption)", lineHeight: 1.7 }}>{message.text}</p>
+                  {message.role === "agent" && message.recalledMemoryIds.length > 0 && (
+                    <span className="mt-1.5 flex items-center gap-1" style={{ color: "#6B9E7A", fontSize: "var(--ui-font-micro)" }}>
+                      <Brain size={10}/>召回了 {message.recalledMemoryIds.length} 段相关记忆
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+            {busy && (
+              <div className="mb-3 flex justify-start">
+                <span className="flex items-center gap-2 rounded-2xl px-3 py-2.5" style={{ color: "#7A7468", background: "#FAF6EF", fontSize: "var(--ui-font-caption)" }}>
+                  <Loader2 size={13} className="animate-spin"/>{profile.name} 正在回忆…
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 pb-3 pt-2" style={{ background: "#F5F0E8", borderTop: "1px solid rgba(28,25,17,.08)" }}>
+            <label className="mb-2 flex items-center justify-between gap-3">
+              <span style={{ color: "#7A7468", fontSize: "var(--ui-font-micro)" }}>让 {profile.name} 把这句话加入长期记忆</span>
+              <button
+                type="button"
+                aria-label="记住这句话"
+                aria-pressed={remember}
+                onClick={() => setRemember(current => !current)}
+                className="relative h-5 w-9 shrink-0 rounded-full"
+                style={{ background: remember ? "#6B9E7A" : "#D6D0C5" }}
+              >
+                <i className="absolute top-1 h-3 w-3 rounded-full bg-white transition-all" style={{ left: remember ? 20 : 4 }}/>
+              </button>
+            </label>
+            <div className="flex items-end gap-2">
+              <textarea
+                value={draft}
+                onChange={event => setDraft(event.target.value.slice(0, 500))}
+                onKeyDown={event => {
+                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    void sendMessage();
+                  }
+                }}
+                rows={1}
+                placeholder={`和 ${profile.name} 说点什么…`}
+                className="min-h-[42px] min-w-0 flex-1 resize-none rounded-2xl px-3 py-3 outline-none"
+                style={{ color: "#1C1911", background: "#FAF6EF", border: "1px solid rgba(28,25,17,.12)", fontSize: "var(--ui-font-caption)", lineHeight: 1.45 }}
+              />
+              <button
+                type="button"
+                aria-label="发送消息"
+                disabled={!draft.trim() || busy || !conversation}
+                onClick={() => void sendMessage()}
+                className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-2xl"
+                style={{ color: "white", background: profile.color, opacity: !draft.trim() || busy || !conversation ? .42 : 1 }}
+              >
+                <Send size={16}/>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -9202,7 +9528,7 @@ export default function App() {
   const [createdPlazaVisitor, setCreatedPlazaVisitor] = useState<CreatedPlazaVisitor | null>(null);
   // Capture tab sub-state
   const [captureSub, setCaptureSub] = useState<"camera"|"extract"|"lineArt"|"bringToLife">("camera");
-  // Agents workspace: four archive tabs plus an internal character-setting detail.
+  // Agents workspace: archive tabs plus an internal character-setting detail.
   const [gallerySub, setGallerySub] = useState<AgentArchiveSection | "styleSetting">("agents");
   const [characterSettingStyle, setCharacterSettingStyle] = useState<CharacterStyleCategory>("dailySpirits");
   const [characterSettingType, setCharacterSettingType] = useState<WorldStyleSkillAssetType | undefined>();
@@ -9651,6 +9977,7 @@ export default function App() {
                   archiveTabs={archiveTabs}
                 />
               )}
+              {gallerySub === "chat" && <AgentConversationScreen archiveTabs={archiveTabs}/>}
               {gallerySub === "chain" && <AgentChainScreen archiveTabs={archiveTabs}/>}
               {gallerySub === "device" && <Esp32Screen navigate={navigate} archiveTabs={archiveTabs}/>}
             </div>

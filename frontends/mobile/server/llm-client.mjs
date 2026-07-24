@@ -15,6 +15,7 @@ export function resolveLlmConfig(env = process.env) {
 
   return {
     enabled: env.WORLD_LLM_ENABLED === "true" && Boolean(apiKey),
+    chatEnabled: env.AGENT_CHAT_LLM_ENABLED === "true" && Boolean(apiKey),
     apiKey,
     baseUrl: trimTrailingSlash(baseUrl),
     model: env.LLM_MODEL_NAME || env.QWEN_MODEL || env.GMI_MODEL || "gpt-4.1-mini",
@@ -76,6 +77,59 @@ export function createNarrativeGenerator(config = resolveLlmConfig()) {
       const content = payload.choices?.[0]?.message?.content;
       if (!content) throw new Error("LLM response did not contain content");
       return JSON.parse(stripCodeFence(content));
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+}
+
+export function createAgentChatGenerator(config = resolveLlmConfig()) {
+  if (!config.chatEnabled) return null;
+
+  return async function generateAgentReply({ agent, message, history, memories }) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+    const memoryText = memories.length
+      ? memories.map(item => `- ${item.text}`).join("\n")
+      : "（还没有与这次谈话相关的长期记忆）";
+
+    try {
+      const response = await fetch(`${config.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.model,
+          temperature: 0.82,
+          max_tokens: 220,
+          messages: [
+            {
+              role: "system",
+              content: [
+                "你是 Agent 世界里用户自己的长期陪伴智能体。",
+                `名字：${agent.name}；角色：${agent.role}；目标：${agent.goal}；说话气质：${agent.voice}。`,
+                "请使用自然、温暖、简洁的中文，以第一人称回应，不超过 100 个汉字。",
+                "只在确实相关时自然引用长期记忆，不要声称记得未提供的事情，也不要替用户做高风险决定。",
+                `相关长期记忆：\n${memoryText}`,
+              ].join("\n"),
+            },
+            ...history.slice(-10).map(item => ({
+              role: item.role === "agent" ? "assistant" : "user",
+              content: item.text,
+            })),
+            { role: "user", content: message },
+          ],
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) throw new Error(`LLM request failed with ${response.status}`);
+      const payload = await response.json();
+      const content = payload.choices?.[0]?.message?.content?.trim();
+      if (!content) throw new Error("LLM response did not contain content");
+      return content.slice(0, 240);
     } finally {
       clearTimeout(timeout);
     }

@@ -101,6 +101,57 @@ function containsChinese(value) {
   return /[\u3400-\u9fff]/.test(String(value || ""));
 }
 
+const CHAT_HISTORY_LIMIT = 120;
+const LONG_TERM_MEMORY_LIMIT = 80;
+
+function memoryTerms(value) {
+  const text = String(value || "").toLowerCase();
+  const terms = new Set(text.match(/[a-z0-9]{2,}/g) || []);
+  for (const segment of text.match(/[\u3400-\u9fff]+/g) || []) {
+    if (segment.length <= 6) terms.add(segment);
+    for (let index = 0; index < segment.length - 1; index += 1) {
+      terms.add(segment.slice(index, index + 2));
+    }
+  }
+  return terms;
+}
+
+function selectRelevantMemories(memories, query, limit = 4) {
+  const queryTerms = memoryTerms(query);
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  return memories
+    .map((memory, index) => {
+      const terms = memoryTerms(memory.text);
+      let overlap = 0;
+      for (const term of queryTerms) if (terms.has(term)) overlap += 1;
+      const exact = normalizedQuery.length >= 3
+        && String(memory.text).toLowerCase().includes(normalizedQuery);
+      const recency = memories.length ? (index + 1) / memories.length : 0;
+      const score = overlap * 12 + (exact ? 30 : 0) + Number(memory.importance || 0) / 20 + recency;
+      return { memory, score, overlap };
+    })
+    .filter(item => item.overlap > 0 || item.memory.pinned)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map(item => item.memory);
+}
+
+function compactText(value, length = 34) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > length ? `${text.slice(0, length)}…` : text;
+}
+
+function localAgentReply(agent, message, memories) {
+  if (memories.length) {
+    const recalled = compactText(memories[0].text).replace(/[。！？!?]+$/, "");
+    return `（认真看着你）我记得你说过“${recalled}”。这次我也会把它放在心上，我们慢慢来。`;
+  }
+  if (/[？?]|怎么|怎么办|可以吗/.test(message)) {
+    return `（想了一会儿）我们先把这件事拆成最小的一步吧。你愿意告诉我，现在最难的是哪一部分吗？`;
+  }
+  return `（轻轻靠近）我听见了。你不用一次把所有事情说明白，我会陪你把这段经历慢慢记下来。`;
+}
+
 function hashString(value) {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -364,9 +415,15 @@ function localizeLegacyWorld(world) {
 }
 
 export class WorldEngine {
-  constructor({ storagePath, narrativeGenerator = null, now = () => new Date().toISOString() }) {
+  constructor({
+    storagePath,
+    narrativeGenerator = null,
+    agentChatGenerator = null,
+    now = () => new Date().toISOString(),
+  }) {
     this.storagePath = storagePath;
     this.narrativeGenerator = narrativeGenerator;
+    this.agentChatGenerator = agentChatGenerator;
     this.now = now;
     this.state = null;
   }
@@ -378,8 +435,51 @@ export class WorldEngine {
       if (error.code !== "ENOENT") throw error;
       this.state = createSeedState(this.now());
       await this.persist();
+      return this.snapshot();
     }
+    if (this.#migrateState()) await this.persist();
     return this.snapshot();
+  }
+
+  #migrateState() {
+    const seed = createSeedState(this.state.meta?.startedAt || this.now());
+    let changed = false;
+    const existingIds = new Set(this.state.agents.map(agent => agent.id));
+
+    for (const seedAgent of seed.agents) {
+      if (!existingIds.has(seedAgent.id)) {
+        this.state.agents.push(seedAgent);
+        existingIds.add(seedAgent.id);
+        changed = true;
+      }
+    }
+
+    for (const agent of this.state.agents) {
+      agent.relationships ||= {};
+      for (const other of this.state.agents) {
+        if (agent.id === other.id || agent.relationships[other.id]) continue;
+        agent.relationships[other.id] = { affinity: 45, trust: 42, sharedEvents: 0, lastChangedAt: 0 };
+        changed = true;
+      }
+    }
+
+    if (!this.state.chat || typeof this.state.chat !== "object") {
+      this.state.chat = structuredClone(seed.chat);
+      changed = true;
+    }
+    if (!Number.isInteger(this.state.chat.nextId)) {
+      this.state.chat.nextId = 1;
+      changed = true;
+    }
+    if (!this.state.chat.histories || typeof this.state.chat.histories !== "object") {
+      this.state.chat.histories = {};
+      changed = true;
+    }
+    if (!this.state.chat.memories || typeof this.state.chat.memories !== "object") {
+      this.state.chat.memories = {};
+      changed = true;
+    }
+    return changed;
   }
 
   snapshot() {
@@ -586,23 +686,131 @@ export class WorldEngine {
     this.state.civilization.milestones = this.state.civilization.milestones.slice(-20);
   }
 
-  async chatWithAgent(agentId, message) {
+  #nextChatId(prefix) {
+    const id = `${prefix}-${this.state.chat.nextId}`;
+    this.state.chat.nextId += 1;
+    return id;
+  }
+
+  getAgentConversation(agentId) {
+    const agent = this.state.agents.find(item => item.id === agentId);
+    if (!agent) return null;
+    const histories = this.state.chat.histories[agentId] || [];
+    const memories = this.state.chat.memories[agentId] || [];
+    return {
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        role: agent.role,
+        color: agent.color,
+        location: agent.location,
+        mood: agent.mood,
+        goal: agent.goal,
+      },
+      messages: structuredClone(histories.slice(-CHAT_HISTORY_LIMIT)),
+      memories: structuredClone([...memories].reverse()),
+    };
+  }
+
+  async addLongTermMemory(agentId, text, { source = "manual", importance = 88, pinned = true } = {}) {
+    const agent = this.state.agents.find(item => item.id === agentId);
+    if (!agent) return null;
+    const content = String(text || "").trim().slice(0, 500);
+    if (!content) throw new Error("Memory text is required");
+    const memories = this.state.chat.memories[agentId] ||= [];
+    const duplicate = [...memories].reverse().find(memory => memory.text === content);
+    if (duplicate) return duplicate;
+    const memory = {
+      id: this.#nextChatId("memory"),
+      text: content,
+      source,
+      importance: clamp(Number(importance) || 70, 1, 100),
+      pinned: Boolean(pinned),
+      createdAt: this.now(),
+      lastRecalledAt: null,
+      recallCount: 0,
+    };
+    memories.push(memory);
+    this.state.chat.memories[agentId] = memories.slice(-LONG_TERM_MEMORY_LIMIT);
+    await this.persist();
+    return structuredClone(memory);
+  }
+
+  async deleteLongTermMemory(agentId, memoryId) {
+    if (!this.state.agents.some(item => item.id === agentId)) return null;
+    const memories = this.state.chat.memories[agentId] || [];
+    const next = memories.filter(memory => memory.id !== memoryId);
+    if (next.length === memories.length) return false;
+    this.state.chat.memories[agentId] = next;
+    await this.persist();
+    return true;
+  }
+
+  async chatWithAgent(agentId, message, { remember = true } = {}) {
     const agent = this.state.agents.find(item => item.id === agentId);
     if (!agent) return null;
     const text = String(message || "").trim().slice(0, 500);
     if (!text) throw new Error("A message is required");
-    const response = `${agent.name}在${agent.location}旁认真想了想你的话：“我会把这个问题带进下一次选择。它不是命令，而是一种新的可能。”`;
-    agent.memories.push({
-      id: `visitor-${Date.now()}-${agent.id}`,
-      tick: this.state.meta.tick,
-      type: "visitor",
-      text: `一位访客说：${text}`,
-      importance: 62,
-      emotion: "curious",
-      participants: ["visitor"],
-    });
-    agent.memories = agent.memories.slice(-this.state.config.maxMemoriesPerAgent);
+
+    const history = this.state.chat.histories[agentId] ||= [];
+    const memories = this.state.chat.memories[agentId] ||= [];
+    const recalledMemories = selectRelevantMemories(memories, text);
+    for (const recalled of recalledMemories) {
+      recalled.recallCount = Number(recalled.recallCount || 0) + 1;
+      recalled.lastRecalledAt = this.now();
+    }
+
+    let response = null;
+    if (this.agentChatGenerator) {
+      try {
+        response = await this.agentChatGenerator({
+          agent,
+          message: text,
+          history,
+          memories: recalledMemories,
+        });
+      } catch {
+        response = null;
+      }
+    }
+    response ||= localAgentReply(agent, text, recalledMemories);
+
+    const userMessage = {
+      id: this.#nextChatId("message"),
+      role: "user",
+      text,
+      createdAt: this.now(),
+      recalledMemoryIds: [],
+    };
+    const agentMessage = {
+      id: this.#nextChatId("message"),
+      role: "agent",
+      text: String(response).slice(0, 500),
+      createdAt: this.now(),
+      recalledMemoryIds: recalledMemories.map(memory => memory.id),
+    };
+    history.push(userMessage, agentMessage);
+    this.state.chat.histories[agentId] = history.slice(-CHAT_HISTORY_LIMIT);
+
+    let acceptedMemory = null;
+    if (remember) {
+      acceptedMemory = await this.addLongTermMemory(agentId, text, {
+        source: "conversation",
+        importance: /记住|重要|目标|计划|喜欢|讨厌|习惯|生日/.test(text) ? 86 : 68,
+        pinned: /记住|重要/.test(text),
+      });
+    } else {
+      await this.persist();
+    }
+
     await this.persist();
-    return { agentId, response, memoryAccepted: true };
+    return {
+      agentId,
+      response: agentMessage.text,
+      memoryAccepted: Boolean(acceptedMemory),
+      acceptedMemory,
+      recalledMemories: structuredClone(recalledMemories),
+      message: structuredClone(agentMessage),
+    };
   }
 }

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import dns from "node:dns";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createNarrativeGenerator, resolveLlmConfig } from "./llm-client.mjs";
+import { createAgentChatGenerator, createNarrativeGenerator, resolveLlmConfig } from "./llm-client.mjs";
 import { loadEnvironment } from "./load-env.mjs";
 import { PetPipeline, petUploadLimits } from "./pet-pipeline.mjs";
 import { WorldEngine } from "./world-engine.mjs";
@@ -20,6 +20,7 @@ const llmConfig = resolveLlmConfig();
 const engine = new WorldEngine({
   storagePath: process.env.WORLD_STATE_PATH || path.join(directory, "data", "world-state.json"),
   narrativeGenerator: createNarrativeGenerator(llmConfig),
+  agentChatGenerator: createAgentChatGenerator(llmConfig),
 });
 const petPipeline = new PetPipeline({
   dataDir: path.join(directory, "data"),
@@ -90,6 +91,7 @@ const server = createServer(async (request, response) => {
         status: engine.state.meta.status,
         tick: engine.state.meta.tick,
         narrativeMode: llmConfig.enabled ? "llm-enabled" : "local",
+        agentChatMode: llmConfig.chatEnabled ? "llm-enabled" : "local-memory",
         petPipeline: {
           configured: Boolean(process.env.GMI_API_KEY),
           storage: "temporary-private",
@@ -154,6 +156,29 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, await mutate(() => engine.reset()));
     }
 
+    const conversationMatch = url.pathname.match(/^\/api\/agents\/([a-z0-9-]+)\/conversation$/);
+    if (request.method === "GET" && conversationMatch) {
+      const conversation = engine.getAgentConversation(conversationMatch[1]);
+      return conversation
+        ? sendJson(response, 200, conversation)
+        : sendJson(response, 404, { error: "Agent not found" });
+    }
+    const memoryCollectionMatch = url.pathname.match(/^\/api\/agents\/([a-z0-9-]+)\/memories$/);
+    if (request.method === "POST" && memoryCollectionMatch) {
+      const body = await readJson(request);
+      const memory = await mutate(() => engine.addLongTermMemory(memoryCollectionMatch[1], body.text));
+      return memory
+        ? sendJson(response, 201, { memory })
+        : sendJson(response, 404, { error: "Agent not found" });
+    }
+    const memoryMatch = url.pathname.match(/^\/api\/agents\/([a-z0-9-]+)\/memories\/(memory-[0-9]+)$/);
+    if (request.method === "DELETE" && memoryMatch) {
+      const deleted = await mutate(() => engine.deleteLongTermMemory(memoryMatch[1], memoryMatch[2]));
+      if (deleted === null) return sendJson(response, 404, { error: "Agent not found" });
+      return deleted
+        ? sendJson(response, 200, { ok: true })
+        : sendJson(response, 404, { error: "Memory not found" });
+    }
     const agentMatch = url.pathname.match(/^\/api\/agents\/([a-z0-9-]+)$/);
     if (request.method === "GET" && agentMatch) {
       const agent = engine.state.agents.find(item => item.id === agentMatch[1]);
@@ -162,7 +187,9 @@ const server = createServer(async (request, response) => {
     const chatMatch = url.pathname.match(/^\/api\/agents\/([a-z0-9-]+)\/chat$/);
     if (request.method === "POST" && chatMatch) {
       const body = await readJson(request);
-      const result = await mutate(() => engine.chatWithAgent(chatMatch[1], body.message));
+      const result = await mutate(() => engine.chatWithAgent(chatMatch[1], body.message, {
+        remember: body.remember !== false,
+      }));
       return result ? sendJson(response, 200, result) : sendJson(response, 404, { error: "Agent not found" });
     }
 

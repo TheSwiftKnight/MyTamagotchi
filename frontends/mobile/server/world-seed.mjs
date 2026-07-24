@@ -83,6 +83,13 @@ const AGENTS = [
     drives: ["climate", "language", "attention"], values: ["adaptation", "beauty", "warning"],
     traits: { curiosity: 0.75, empathy: 0.86, discipline: 0.53, courage: 0.64, imagination: 0.96 },
   },
+  {
+    id: "dotti", name: "Dotti", role: "Training Watchdog", world: "Memory Town", object: "dachshund",
+    color: "#B67C42", location: "Pulse Gym", voice: "warm, observant, patient, and gently persistent",
+    goal: "remember the owner's rhythms and turn small efforts into sustainable habits",
+    drives: ["care", "memory", "growth"], values: ["safety", "consistency", "encouragement"],
+    traits: { curiosity: 0.72, empathy: 0.94, discipline: 0.88, courage: 0.64, imagination: 0.61 },
+  },
 ];
 
 function buildRelationships(agentId) {
@@ -126,7 +133,7 @@ export function createSeedState(now = new Date().toISOString()) {
       ],
       discoveries: [],
       milestones: [
-        { tick: 0, title: "The First Gathering", text: "Twelve residents agreed to remember together." },
+        { tick: 0, title: "The First Gathering", text: "Thirteen residents agreed to remember together." },
       ],
       tensions: ["How much should a shared archive forget?"],
     },
@@ -141,6 +148,11 @@ export function createSeedState(now = new Date().toISOString()) {
       personalityVersion: 1,
       lastActiveTick: 0,
     })),
+    chat: {
+      nextId: 1,
+      histories: {},
+      memories: {},
+    },
     events: [],
   };
 }

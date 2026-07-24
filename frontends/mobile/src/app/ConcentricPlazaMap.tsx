@@ -12,7 +12,8 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { ArrowRight, Home, Minus, Plus, Radio, Users } from "lucide-react";
-import concentricCommonsMap from "../assets/world/plaza/concentric-commons.png";
+import unifiedConcentricTownHdAvif from "../assets/world/plaza/unified-concentric-town@2x.avif";
+import unifiedConcentricTownPng from "../assets/world/plaza/unified-concentric-town.png";
 import petDachshundPng from "../assets/world/pet-agents/sprites/dachshund.png";
 import type { PlazaSkill } from "./plazaSkills";
 import "./ConcentricPlazaMap.css";
@@ -66,45 +67,50 @@ type PointerPoint = {
 
 type HouseSlot = {
   id: string;
+  ringId: number;
+  ringName: string;
   x: number;
   y: number;
   w: number;
   h: number;
 };
 
-const STAGE_WIDTH = 1672;
-const STAGE_HEIGHT = 941;
+const STAGE_WIDTH = 3344;
+const STAGE_HEIGHT = 1882;
 const MIN_SCALE = 0.22;
 const MAX_SCALE = 2.2;
-const PLAZA_FOCUS = { x: 380, y: 80, width: 912, height: 780 };
+const DEFAULT_PLAZA_SCALE = 0.36;
+const PLAZA_CENTER = { x: STAGE_WIDTH / 2, y: STAGE_HEIGHT / 2 };
+const PLAZA_FOCUS = {
+  x: PLAZA_CENTER.x - 470,
+  y: PLAZA_CENTER.y - 390,
+  width: 940,
+  height: 780,
+};
 
-const HOUSE_SLOTS: HouseSlot[] = [
-  { id: "H01", x: 541, y: 105, w: 104, h: 91 },
-  { id: "H02", x: 636, y: 78, w: 82, h: 78 },
-  { id: "H03", x: 705, y: 75, w: 75, h: 78 },
-  { id: "H04", x: 1005, y: 76, w: 106, h: 82 },
-  { id: "H05", x: 1117, y: 91, w: 92, h: 82 },
-  { id: "H06", x: 1190, y: 108, w: 68, h: 80 },
-  { id: "H07", x: 1306, y: 206, w: 105, h: 96 },
-  { id: "H08", x: 1381, y: 283, w: 88, h: 91 },
-  { id: "H09", x: 1416, y: 384, w: 76, h: 101 },
-  { id: "H10", x: 1411, y: 511, w: 78, h: 97 },
-  { id: "H11", x: 1381, y: 612, w: 89, h: 99 },
-  { id: "H12", x: 1305, y: 693, w: 108, h: 94 },
-  { id: "H13", x: 1187, y: 795, w: 92, h: 86 },
-  { id: "H14", x: 1104, y: 826, w: 78, h: 80 },
-  { id: "H15", x: 1010, y: 844, w: 96, h: 83 },
-  { id: "H16", x: 735, y: 847, w: 86, h: 82 },
-  { id: "H17", x: 648, y: 842, w: 76, h: 80 },
-  { id: "H18", x: 565, y: 826, w: 78, h: 81 },
-  { id: "H19", x: 486, y: 796, w: 98, h: 86 },
-  { id: "H20", x: 366, y: 692, w: 108, h: 95 },
-  { id: "H21", x: 294, y: 604, w: 91, h: 99 },
-  { id: "H22", x: 270, y: 509, w: 74, h: 91 },
-  { id: "H23", x: 278, y: 383, w: 82, h: 101 },
-  { id: "H24", x: 322, y: 281, w: 90, h: 92 },
-  { id: "H25", x: 389, y: 205, w: 102, h: 96 },
-];
+const PLAZA_RINGS = [
+  { id: 1, name: "一环 · 中央住区", rx: 790, ry: 520, capacity: 36, offset: -85 },
+  { id: 2, name: "二环 · 花园住区", rx: 1090, ry: 710, capacity: 44, offset: -85.9 },
+  { id: 3, name: "三环 · 田园住区", rx: 1380, ry: 860, capacity: 52, offset: -86.54 },
+] as const;
+
+const HOUSE_SLOTS: HouseSlot[] = PLAZA_RINGS.flatMap((ring, ringIndex) => {
+  const firstHouseNumber = PLAZA_RINGS
+    .slice(0, ringIndex)
+    .reduce((total, previousRing) => total + previousRing.capacity, 0) + 1;
+  return Array.from({ length: ring.capacity }, (_, slot) => {
+    const angle = (ring.offset + slot * 360 / ring.capacity) * Math.PI / 180;
+    return {
+      id: `H${String(firstHouseNumber + slot).padStart(2, "0")}`,
+      ringId: ring.id,
+      ringName: ring.name,
+      x: Math.round(PLAZA_CENTER.x + Math.cos(angle) * ring.rx),
+      y: Math.round(PLAZA_CENTER.y + Math.sin(angle) * ring.ry),
+      w: ring.id === 1 ? 118 : 110,
+      h: ring.id === 1 ? 94 : 88,
+    };
+  });
+});
 
 const OCCUPIED_HOUSE_INDEXES = [1, 5, 9, 13, 17, 21];
 const MEMBER_POSITIONS = [
@@ -116,7 +122,11 @@ const MEMBER_POSITIONS = [
   { x: 736, y: 585, dx: -15, dy: -12 },
   { x: 836, y: 644, dx: 18, dy: -8 },
   { x: 836, y: 300, dx: -14, dy: 10 },
-];
+].map(position => ({
+  ...position,
+  x: position.x + PLAZA_CENTER.x - 836,
+  y: position.y + PLAZA_CENTER.y - 470,
+}));
 
 const PLAZA_TRAINING_LINES = [
   { speaker: "Miko", topic: "动作质量", color: "#E8634A", text: "慢一点下蹲，膝盖和脚尖保持同向。" },
@@ -212,13 +222,15 @@ export function ConcentricPlazaMap({
   const fitPlaza = useCallback(() => {
     const { width, height } = viewportSizeRef.current;
     if (!width || !height) return;
-    const scale = Math.max(
+    viewportRef.current?.scrollTo({ left: 0, top: 0 });
+    const fittedScale = Math.max(
       MIN_SCALE,
       Math.min(
         MAX_SCALE,
         Math.min((width - 20) / PLAZA_FOCUS.width, (height - 20) / PLAZA_FOCUS.height),
       ),
     );
+    const scale = width < 900 ? Math.max(DEFAULT_PLAZA_SCALE, fittedScale) : fittedScale;
     commitView({
       scale,
       x: (width - PLAZA_FOCUS.width * scale) / 2 - PLAZA_FOCUS.x * scale,
@@ -262,8 +274,10 @@ export function ConcentricPlazaMap({
     const viewport = viewportRef.current;
     if (!viewport) return;
     const resize = () => {
-      const bounds = viewport.getBoundingClientRect();
-      viewportSizeRef.current = { width: bounds.width, height: bounds.height };
+      viewportSizeRef.current = {
+        width: viewport.clientWidth,
+        height: viewport.clientHeight,
+      };
       if (focusMemberId && focusRequest > 0) focusOnMember();
       else fitPlaza();
     };
@@ -275,7 +289,10 @@ export function ConcentricPlazaMap({
 
   const pointFromEvent = (event: ReactPointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    return {
+      x: (event.clientX - bounds.left) * event.currentTarget.clientWidth / bounds.width,
+      y: (event.clientY - bounds.top) * event.currentTarget.clientHeight / bounds.height,
+    };
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -328,8 +345,8 @@ export function ConcentricPlazaMap({
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
     zoomAt(event.deltaY > 0 ? 0.9 : 1.1, {
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
+      x: (event.clientX - bounds.left) * event.currentTarget.clientWidth / bounds.width,
+      y: (event.clientY - bounds.top) * event.currentTarget.clientHeight / bounds.height,
     });
   };
 
@@ -371,7 +388,10 @@ export function ConcentricPlazaMap({
       onDoubleClick={event => {
         if ((event.target as HTMLElement).closest("button")) return;
         const bounds = event.currentTarget.getBoundingClientRect();
-        zoomAt(1.28, { x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+        zoomAt(1.28, {
+          x: (event.clientX - bounds.left) * event.currentTarget.clientWidth / bounds.width,
+          y: (event.clientY - bounds.top) * event.currentTarget.clientHeight / bounds.height,
+        });
       }}
       onKeyDown={handleKeyDown}
     >
@@ -381,12 +401,10 @@ export function ConcentricPlazaMap({
           transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
         }}
       >
-        <img
-          className="concentric-plaza-map__art"
-          src={concentricCommonsMap}
-          alt=""
-          draggable={false}
-        />
+        <picture className="concentric-plaza-map__art" aria-hidden="true">
+          <source srcSet={unifiedConcentricTownHdAvif} type="image/avif" />
+          <img src={unifiedConcentricTownPng} alt="" draggable={false} />
+        </picture>
         <div className="concentric-plaza-map__vignette" aria-hidden="true" />
 
         <div className="concentric-plaza-map__houses">
@@ -460,7 +478,9 @@ export function ConcentricPlazaMap({
           {MEMBER_POSITIONS.map((position, index) => (
             <path
               key={index}
-              d={`M ${position.x} ${position.y} Q ${(position.x + 836) / 2} ${position.y < 470 ? 390 : 550} 836 470`}
+              d={`M ${position.x} ${position.y} Q ${(position.x + PLAZA_CENTER.x) / 2} ${
+                position.y < PLAZA_CENTER.y ? PLAZA_CENTER.y - 80 : PLAZA_CENTER.y + 80
+              } ${PLAZA_CENTER.x} ${PLAZA_CENTER.y}`}
             />
           ))}
         </svg>
@@ -544,7 +564,7 @@ export function ConcentricPlazaMap({
         <aside className="concentric-plaza-map__house-card" onPointerDown={event => event.stopPropagation()}>
           <button type="button" aria-label="关闭房屋信息" onClick={() => setActiveHouseId(null)}>×</button>
           <span>
-            {activeHouse.id} · {activeHouse.userWorld ? "你的世界" : activeHouse.featured ? "主题入口" : activeHouse.member ? "已入住" : "空房"}
+            {activeHouse.ringName} · {activeHouse.id} · {activeHouse.userWorld ? "你的世界" : activeHouse.featured ? "主题入口" : activeHouse.member ? "已入住" : "空房"}
           </span>
           <strong>{activeHouse.userWorld?.worldName ?? activeHouse.featured?.worldName ?? activeHouse.member?.name ?? "等待新的 Agent 世界"}</strong>
           <small>
@@ -568,7 +588,7 @@ export function ConcentricPlazaMap({
 
       <nav className="concentric-plaza-map__controls" aria-label="大地图控制" onPointerDown={event => event.stopPropagation()}>
         <button type="button" onClick={() => zoomAt(1 / 1.18)} aria-label="缩小地图"><Minus size={14} /></button>
-        <button type="button" onClick={fitPlaza} aria-label="显示完整圆形广场"><Home size={14} /></button>
+        <button type="button" onClick={fitPlaza} aria-label="回到中央学习广场"><Home size={14} /></button>
         <button type="button" onClick={() => zoomAt(1.18)} aria-label="放大地图"><Plus size={14} /></button>
       </nav>
 

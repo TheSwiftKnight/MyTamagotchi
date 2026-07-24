@@ -10,6 +10,48 @@ export type WorldMemory = {
   participants: string[];
 };
 
+export type AgentChatMessage = {
+  id: string;
+  role: "user" | "agent";
+  text: string;
+  createdAt: string;
+  recalledMemoryIds: string[];
+};
+
+export type AgentLongTermMemory = {
+  id: string;
+  text: string;
+  source: "conversation" | "manual";
+  importance: number;
+  pinned: boolean;
+  createdAt: string;
+  lastRecalledAt: string | null;
+  recallCount: number;
+};
+
+export type AgentConversation = {
+  agent: {
+    id: string;
+    name: string;
+    role: string;
+    color: string;
+    location: string;
+    mood: string;
+    goal: string;
+  };
+  messages: AgentChatMessage[];
+  memories: AgentLongTermMemory[];
+};
+
+export type AgentChatReply = {
+  agentId: string;
+  response: string;
+  memoryAccepted: boolean;
+  acceptedMemory: AgentLongTermMemory | null;
+  recalledMemories: AgentLongTermMemory[];
+  message: AgentChatMessage;
+};
+
 export type WorldReflection = {
   tick: number;
   text: string;
@@ -114,4 +156,16 @@ export const worldApi = {
   run: () => request<WorldState>("/world/run", { method: "POST" }),
   pause: () => request<WorldState>("/world/pause", { method: "POST" }),
   reset: () => request<WorldState>("/world/reset", { method: "POST" }),
+  getAgentConversation: (agentId: string) => request<AgentConversation>(`/agents/${agentId}/conversation`),
+  chatWithAgent: (agentId: string, message: string, remember = true) => request<AgentChatReply>(`/agents/${agentId}/chat`, {
+    method: "POST",
+    body: JSON.stringify({ message, remember }),
+  }),
+  addAgentMemory: (agentId: string, text: string) => request<{ memory: AgentLongTermMemory }>(`/agents/${agentId}/memories`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  }),
+  deleteAgentMemory: (agentId: string, memoryId: string) => request<{ ok: true }>(`/agents/${agentId}/memories/${memoryId}`, {
+    method: "DELETE",
+  }),
 };
