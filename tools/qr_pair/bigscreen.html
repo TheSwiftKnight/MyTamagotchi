@@ -100,6 +100,54 @@
              border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg) } }
 
+  /* ---- 碰撞演出 ---- */
+  #fx { position: absolute; inset: 0; pointer-events: none; z-index: 30; }
+  .ov-inner { display: flex; flex-direction: column; align-items: center; gap: 18px; position: relative; }
+  .ov-inner.shake { animation: shake .45s both; }
+  @keyframes shake {
+    10%,90% { transform: translate(-2px, 1px) } 20%,80% { transform: translate(5px, -2px) }
+    30%,70% { transform: translate(-8px, 3px) } 40%,60% { transform: translate(8px, -4px) }
+    50% { transform: translate(-5px, 4px) }
+  }
+  .heroes { display: flex; align-items: center; gap: 26px; height: 120px; position: relative; }
+  .hero { font-size: 92px; line-height: 1; display: inline-block; opacity: 0; }
+  .hero.fly-l { animation: flyL .55s cubic-bezier(.45,0,.9,.6) both; }
+  .hero.fly-r { animation: flyR .55s cubic-bezier(.45,0,.9,.6) both; }
+  @keyframes flyL { from { opacity: 1; transform: translateX(-58vw) rotate(-40deg) scale(.7) }
+                    85% { transform: translateX(3vw) rotate(6deg) }
+                    to { opacity: 1; transform: none } }
+  @keyframes flyR { from { opacity: 1; transform: translateX(58vw) rotate(40deg) scale(.7) }
+                    85% { transform: translateX(-3vw) rotate(-6deg) }
+                    to { opacity: 1; transform: none } }
+  .hero.approach-l { opacity: 1; animation: appL 2.2s ease-in-out infinite alternate; }
+  .hero.approach-r { opacity: 1; animation: appR 2.2s ease-in-out infinite alternate; }
+  @keyframes appL { from { transform: translateX(-16vw) } to { transform: translateX(-2vw) } }
+  @keyframes appR { from { transform: translateX(16vw) } to { transform: translateX(2vw) } }
+  .beam {
+    width: 0; height: 10px; border-radius: 999px;
+    background: linear-gradient(90deg, #E8A33C, #D95D39, #E8A33C);
+    box-shadow: 0 0 18px rgba(217,93,57,.65);
+  }
+  .beam.on { animation: beamOn .5s .1s cubic-bezier(.2,.9,.3,1.3) both, beamGlow 1.4s .6s ease-in-out infinite; }
+  @keyframes beamOn { from { width: 0; opacity: 0 } to { width: 110px; opacity: 1 } }
+  @keyframes beamGlow { 0%,100% { box-shadow: 0 0 10px rgba(217,93,57,.4) }
+                        50% { box-shadow: 0 0 30px rgba(217,93,57,.95) } }
+  .shock {
+    position: absolute; left: 50%; top: 50%; width: 90px; height: 90px;
+    margin: -45px 0 0 -45px; border: 5px solid #D95D39; border-radius: 50%;
+    opacity: 0; pointer-events: none;
+  }
+  .shock.go { animation: ring .75s ease-out both; }
+  .shock.go2 { animation: ring .9s .12s ease-out both; border-color: #E8A33C; }
+  @keyframes ring { from { opacity: .95; transform: scale(.2) } to { opacity: 0; transform: scale(6.5) } }
+  .flashfx { position: absolute; inset: 0; background: radial-gradient(circle at 50% 38%, #fff, transparent 62%);
+             opacity: 0; pointer-events: none; z-index: 2; }
+  .flashfx.go { animation: flash .5s ease-out both; }
+  @keyframes flash { from { opacity: .95 } to { opacity: 0 } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(26px) } to { opacity: 1; transform: none } }
+  @keyframes scorePop { 0% { transform: scale(.3); opacity: 0 } 60% { transform: scale(1.18) }
+                        100% { transform: scale(1); opacity: 1 } }
+
   /* 窄屏/竖屏（内嵌预览、竖置大屏）：改上下布局 */
   @media (max-width: 980px) {
     body { flex-direction: column; overflow-y: auto; }
@@ -143,14 +191,25 @@
   </div>
 
   <div class="overlay" id="overlay">
-    <div class="ov-wait" id="ov_wait"><span class="spinner"></span>两个世界正在相遇…</div>
-    <div id="ov_body" style="display:none; flex-direction:column; align-items:center; gap:20px;">
-      <div class="ov-pair" id="ov_pair"></div>
-      <div class="ov-score"><span id="ov_score">0</span><small> / 100 灵魂契合</small></div>
-      <div class="ov-reason" id="ov_reason"></div>
-      <div class="ov-topic"><b>值得聊的那件事</b><span id="ov_topic"></span></div>
-      <div class="ov-chat" id="ov_chat"></div>
-      <div class="ov-learned" id="ov_learned" style="display:none"></div>
+    <canvas id="fx"></canvas>
+    <div class="flashfx" id="flashfx"></div>
+    <div class="ov-inner" id="ov_inner">
+      <div class="heroes" id="heroes">
+        <span class="hero" id="hero_a"></span>
+        <span class="beam" id="beam"></span>
+        <span class="hero" id="hero_b"></span>
+        <span class="shock" id="shock"></span>
+        <span class="shock" id="shock2"></span>
+      </div>
+      <div class="ov-wait" id="ov_wait"><span class="spinner"></span>两个世界正在相遇…</div>
+      <div id="ov_body" style="display:none; flex-direction:column; align-items:center; gap:18px;">
+        <div class="ov-pair" id="ov_pair"></div>
+        <div class="ov-score" id="ov_score_wrap"><span id="ov_score">0</span><small> / 100 灵魂契合</small></div>
+        <div class="ov-reason" id="ov_reason"></div>
+        <div class="ov-topic"><b>值得聊的那件事</b><span id="ov_topic"></span></div>
+        <div class="ov-chat" id="ov_chat"></div>
+        <div class="ov-learned" id="ov_learned" style="display:none"></div>
+      </div>
     </div>
   </div>
 
@@ -189,26 +248,87 @@
     }, 26);
   }
 
-  function showPairing() {
+  /* ---- 彩纸粒子（canvas，无依赖） ---- */
+  const PALETTE = ["#D95D39", "#E8A33C", "#7BC47F", "#1C1911", "#FBE8A6", "#ffffff"];
+  let fxToken = 0;
+  function stopFx() { fxToken++; }
+  function burst() {
+    const cv = $("fx"), ctx = cv.getContext("2d");
+    cv.width = cv.offsetWidth; cv.height = cv.offsetHeight;
+    // 粒子从两个主角的正中间喷出（实时取坐标，不受布局影响）
+    const hr = $("heroes").getBoundingClientRect(), or = cv.getBoundingClientRect();
+    const cx = hr.left + hr.width / 2 - or.left;
+    const cy = hr.top + hr.height / 2 - or.top;
+    const ps = [];
+    for (let i = 0; i < 160; i++) {
+      const ang = Math.random() * Math.PI * 2, sp = 5 + Math.random() * 13;
+      ps.push({ x: cx, y: cy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 4,
+                w: 6 + Math.random() * 9, h: 4 + Math.random() * 6,
+                rot: Math.random() * Math.PI, vr: (Math.random() - .5) * .35,
+                c: PALETTE[i % PALETTE.length], life: 90 + Math.random() * 60 });
+    }
+    const token = ++fxToken;
+    (function tick() {
+      if (token !== fxToken) { ctx.clearRect(0, 0, cv.width, cv.height); return; }
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      let alive = 0;
+      for (const p of ps) {
+        if (p.life <= 0) continue;
+        alive++;
+        p.life--; p.x += p.vx; p.y += p.vy; p.vy += 0.32; p.vx *= 0.99; p.rot += p.vr;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.globalAlpha = Math.min(1, p.life / 40);
+        ctx.fillStyle = p.c; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+      if (alive > 0) requestAnimationFrame(tick);
+      else ctx.clearRect(0, 0, cv.width, cv.height);
+    })();
+  }
+
+  function setHeroes(ea, eb, mode) {
+    const ha = $("hero_a"), hb = $("hero_b");
+    ha.textContent = ea || "❔"; hb.textContent = eb || "❔";
+    ha.className = "hero"; hb.className = "hero";
+    void ha.offsetWidth;                       // 重置动画
+    if (mode === "approach") { ha.classList.add("approach-l"); hb.classList.add("approach-r"); }
+    if (mode === "fly")      { ha.classList.add("fly-l");      hb.classList.add("fly-r"); }
+  }
+
+  function showPairing(ida, idb) {
     clearTimeout(hideTimer);
+    stopFx();
+    $("beam").className = "beam";
     $("ov_wait").style.display = "flex";
     $("ov_body").style.display = "none";
+    const a = agents[ida] || {}, b = agents[idb] || {};
+    setHeroes(a.emoji, b.emoji, "approach");
     $("overlay").classList.add("show");
     setStatus("捕捉到两个世界！正在生成相遇故事…", true);
   }
 
+  function reveal(el, delay) {
+    el.style.animation = "none"; void el.offsetWidth;
+    el.style.animation = `fadeUp .55s ${delay}s cubic-bezier(.2,.9,.3,1.15) both`;
+  }
+
   function showResult(r) {
     clearTimeout(hideTimer);
+    const ag = r.agents || [];
+    const names = ag.map(a => a.emoji + " " + a.name).join("　×　");
+    const sc = (r.resonance || {}).score || 0;
+
+    /* 内容先填好但隐藏，等撞击后逐层浮现 */
     $("ov_wait").style.display = "none";
     $("ov_body").style.display = "flex";
-    const names = (r.agents || []).map(a => a.emoji + " " + a.name).join("　×　");
     $("ov_pair").textContent = names;
+    $("ov_score").textContent = "0";
     $("ov_reason").textContent = (r.resonance || {}).reason || "";
     $("ov_topic").textContent = (r.resonance || {}).topic || "";
     const chat = $("ov_chat"); chat.innerHTML = "";
     (r.lines || []).forEach((l, i) => {
       const d = document.createElement("div"); d.className = "ov-line";
-      d.style.animationDelay = (0.3 + i * 0.6) + "s";
+      d.style.animationDelay = (1.6 + i * 0.55) + "s";
       d.innerHTML = '<span class="e"></span><span class="t"></span>';
       d.querySelector(".e").textContent = l.emoji || "";
       d.querySelector(".t").textContent = l.name + "：" + l.text;
@@ -217,12 +337,34 @@
     const lb = $("ov_learned");
     if (r.learned) { lb.style.display = ""; lb.textContent = "✨ " + r.learned.learner + " 学会了「" + r.learned.skill + "」"; }
     else lb.style.display = "none";
+
+    /* 演出序列：飞入(0-550ms) → 撞击(550ms) → 内容浮现 */
     $("overlay").classList.add("show");
-    countUp($("ov_score"), (r.resonance || {}).score || 0);
-    const sc = (r.resonance || {}).score || 0;
+    $("beam").className = "beam";
+    setHeroes(ag[0] && ag[0].emoji, ag[1] && ag[1].emoji, "fly");
+
+    setTimeout(() => {                                   // 撞击瞬间
+      $("ov_inner").classList.remove("shake"); void $("ov_inner").offsetWidth;
+      $("ov_inner").classList.add("shake");
+      $("flashfx").className = "flashfx"; void $("flashfx").offsetWidth;
+      $("flashfx").classList.add("go");
+      $("shock").className = "shock"; $("shock2").className = "shock";
+      void $("shock").offsetWidth;
+      $("shock").classList.add("go"); $("shock2").classList.add("go2");
+      $("beam").classList.add("on");
+      burst();
+      $("ov_score_wrap").style.animation = "none"; void $("ov_score_wrap").offsetWidth;
+      $("ov_score_wrap").style.animation = "scorePop .6s .15s cubic-bezier(.2,.9,.3,1.4) both";
+      setTimeout(() => countUp($("ov_score"), sc), 300);
+      reveal($("ov_pair"), 0.1);
+      reveal($("ov_reason"), 0.9);
+      reveal($("ov_topic"), 1.2);
+      if (r.learned) reveal(lb, 1.5);
+    }, 550);
+
     addRecent(names, sc);
     setStatus("灵魂契合 " + sc + " 分！下一组请举牌", false);
-    hideTimer = setTimeout(() => $("overlay").classList.remove("show"), 15000);
+    hideTimer = setTimeout(() => { $("overlay").classList.remove("show"); stopFx(); }, 18000);
   }
 
   function addRecent(names, score) {
@@ -242,7 +384,7 @@
       if (ev.type === "waiting") {
         setStatus("已看到 " + agentLabel(ev.agent_id) + " · 等待另一位举牌…", true);
       } else if (ev.type === "pairing") {
-        showPairing();
+        showPairing(ev.a, ev.b);
       } else if (ev.type === "pair") {
         showResult(ev.result);
       } else if (ev.type === "pair_failed") {

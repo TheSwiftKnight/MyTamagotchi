@@ -190,7 +190,10 @@ def main():
                         if args.once:
                             return
                         continue
-                    stream_server.broadcast({"type": "pairing"})
+                    ia, ib = a.removeprefix(QR_PREFIX), b.removeprefix(QR_PREFIX)
+                    stream_server.broadcast({"type": "pairing",
+                                             "a": int(ia) if ia.isdigit() else ia,
+                                             "b": int(ib) if ib.isdigit() else ib})
                     pair_thread = threading.Thread(
                         target=pair_worker, args=(args.backend, a, b), daemon=True)
                     pair_thread.start()
