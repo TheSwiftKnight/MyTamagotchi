@@ -1,3 +1,5 @@
+import { API_BASE, API_ORIGIN } from "./apiBase";
+
 export type PetAsset = {
   id: string;
   name: string;
@@ -30,8 +32,6 @@ export type PetJob = {
   asset?: PetAsset;
 };
 
-const API_BASE = (import.meta.env.VITE_WORLD_API_URL || "http://127.0.0.1:8000/api").replace(/\/$/, "");
-const API_ORIGIN = API_BASE.replace(/\/api$/, "");
 
 function absoluteAssetUrls(asset: PetAsset): PetAsset {
   const resolve = (url: string) => url.startsWith("http") ? url : `${API_ORIGIN}${url}`;

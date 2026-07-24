@@ -1,6 +1,7 @@
 
 import { createRoot } from "react-dom/client";
 import App from "./app/App.tsx";
+import { API_BASE } from "./app/apiBase";
 import "./styles/index.css";
 
 createRoot(document.getElementById("root")!).render(<App />);
@@ -8,10 +9,11 @@ createRoot(document.getElementById("root")!).render(<App />);
 const splash = document.getElementById("agentland-splash");
 const connectionLabel = document.getElementById("agentland-connection-label");
 if (splash) {
-  const apiBase = (import.meta.env.VITE_WORLD_API_URL || "http://127.0.0.1:8787/api").replace(/\/$/, "");
   const minimumDisplay = new Promise(resolve => window.setTimeout(resolve, 5000));
   const networkReady = Promise.race([
-    fetch(`${apiBase}/health`, { cache: "no-store" }).then(response => response.ok),
+    // 原本写死 8787（已废弃的 node demo 端口），导致后端明明在跑，
+    // 开屏也永远显示「以本地模式进入」
+    fetch(`${API_BASE}/health`, { cache: "no-store" }).then(response => response.ok),
     new Promise<boolean>(resolve => window.setTimeout(() => resolve(false), 1800)),
   ]).catch(() => false);
 

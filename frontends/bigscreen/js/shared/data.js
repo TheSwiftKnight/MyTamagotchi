@@ -2,8 +2,12 @@
  * 正式版把 fetch 目标换成后端 GET /worlds 即可，数据结构同构。 */
 window.FW = window.FW || {};
 
-// 后端注册表接口；不可达（网络错/非 200）时回退本地静态 worlds.json，离线也能跑
-FW.API_URL = "http://localhost:8000/api/worlds";
+// 后端注册表接口；不可达（网络错/非 200）时回退本地静态 worlds.json，离线也能跑。
+// 依页面 hostname 推导而非写死 localhost：大屏常在另一台机器投屏打开，
+// 写死 localhost 会去连那台机器自己。file:// 直开时 hostname 为空，退回 127.0.0.1。
+FW.API_URL = (location.hostname
+  ? `${location.protocol}//${location.hostname}:8000`
+  : "http://127.0.0.1:8000") + "/api/worlds";
 
 FW.fetchRegistry = async function (base) {
   // 1) 优先后端

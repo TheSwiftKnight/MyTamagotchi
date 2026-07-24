@@ -6,7 +6,10 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
-        "frontend"
+        "frontend",
+        "--",
+        "--host",
+        "0.0.0.0"
       ],
       "cwd": "frontends/mobile",
       "port": 5173,

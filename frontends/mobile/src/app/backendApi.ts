@@ -1,6 +1,5 @@
 // FastAPI 后端客户端：agents / plaza / skills / forge / learn
-const API_BASE = (import.meta.env.VITE_WORLD_API_URL || "http://127.0.0.1:8000/api").replace(/\/$/, "");
-const API_ORIGIN = API_BASE.replace(/\/api$/, "");
+import { API_BASE, API_ORIGIN } from "./apiBase";
 
 /** 把后端返回的相对资源路径（如 /api/pets/xx/files/final）解析成可加载的 URL。 */
 export function resolveApiAssetUrl(url: string): string {
