@@ -25,13 +25,16 @@ SiliconFlow 的 key 不能烧进固件，所以用这个 Mac 侧桥接中转。
 - **对话只走共享后端**：板子聊天写进后端记忆，手机 app 可见。后端不可用时用本地兜底短句
   （仍走 SiliconFlow TTS 播出来），**绝不退回 StepFun**。
 - 配置与后端 `MyTamagotchi/backend/.env` 同源（`LLM_API_KEY` / `LLM_*_MODEL`），自动向上查找。
+- **`X-Reply` 响应头带回真实回复文本**：body 仍是纯 PCM（播放不受影响），回复文字用 HTTP 头
+  `X-Reply`（UTF-8 字节走 latin-1 通道原样上线）单独带回，板子解析后显示到屏幕气泡，
+  这样屏幕不再是写死的占位文案，而是「你说什么、它答什么」。固件缓冲 512B，桥接裁到 500B。
 
 ## 设备侧协议（与固件写死一致，改动需重烧固件）
 
 | 方法 | 路径 | body / resp |
 |---|---|---|
 | GET | `/ping` | → `pong` |
-| POST | `/chat` | body=PCM s16le 16k mono；resp=PCM s16le 16k mono |
+| POST | `/chat` | body=PCM s16le 16k mono；resp=PCM s16le 16k mono；resp 头 `X-Reply:` 带回答文本(UTF-8) |
 
 固件里对应：`BRIDGE_IP:8390`，见
 `TuyaOpen/examples/graphics/lvgl_label/src/example_lvgl_label.c`。

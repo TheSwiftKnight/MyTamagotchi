@@ -175,18 +175,20 @@ def tts(text: str) -> bytes:
 
 
 # ────────────────────────── 流水线 ──────────────────────────
-def pipeline(pcm_in: bytes) -> bytes:
+def pipeline(pcm_in: bytes):
+    """返回 (回答PCM, 回答文本)。文本经 X-Reply 头带回板子屏幕显示。"""
     dur_ms = len(pcm_in) // 32
     # 太短(板子开机探活 "x" / 误触)：快速回一小段静音, 不浪费 STT/TTS
     if dur_ms < 300:
         print(f"[chat] {dur_ms}ms 过短(探活/误触) -> 回静音")
-        return silence(120)
+        return silence(120), ""
     print(f"[chat] 收到 {dur_ms}ms 音频")
     text = asr(pcm_in)
     if not text:
-        return tts("我没听清，再说一遍好吗？汪。")
-    reply = chat(text)
-    return tts(clean_text(reply))
+        line = "我没听清，再说一遍好吗？汪。"
+        return tts(line), line
+    reply = clean_text(chat(text))
+    return tts(reply), reply
 
 
 # ────────────────────────── HTTP 服务(协议与固件写死一致) ──────────────────────────
@@ -213,10 +215,16 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         pcm_in = self.rfile.read(n)
         try:
-            pcm_out = pipeline(pcm_in)
+            pcm_out, reply = pipeline(pcm_in)
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(pcm_out)))
+            if reply:
+                # 头值走 latin-1 通道: UTF-8 字节逐字节塞进去 -> 上线即原始 UTF-8,
+                # 板子 strstr 直接拿到 UTF-8 原文喂 LVGL。裁到 500B(固件缓冲 512)并修掉截断尾字节。
+                b = reply.encode("utf-8")[:500]
+                b = b.decode("utf-8", "ignore").encode("utf-8")
+                self.send_header("X-Reply", b.decode("latin-1"))
             self.end_headers()
             self.wfile.write(pcm_out)
         except Exception as e:
@@ -234,8 +242,9 @@ def selftest():
     user_pcm = tts("你好呀，我今天上班有点累，想跟你聊聊天，你能安慰安慰我吗？")
     print(f"   造出 {len(user_pcm)//32}ms 音频")
     print("2) 全流水线: STT → 后端豆豆对话 → TTS")
-    out = pipeline(user_pcm)
+    out, reply = pipeline(user_pcm)
     print(f"✅ 闭环 OK, 总耗时 {time.time()-t0:.1f}s, 回答音频 {len(out)//32}ms @16k")
+    print(f"   屏幕将显示(X-Reply): {reply!r}")
 
 
 if __name__ == "__main__":
