@@ -35,6 +35,48 @@ FALLBACK_LINES = [
 VL_MODEL = os.getenv("OPENROUTER_VL_MODEL", "nvidia/nemotron-nano-12b-v2-vl:free")
 IMG_MODEL = os.getenv("OPENROUTER_IMG_MODEL", "google/gemini-3.1-flash-lite-image")
 
+# 语音（STT/TTS）——OpenAI 兼容音频接口（如 SiliconFlow）。audio base 从 chat base 推导。
+AUDIO_BASE = BASE_URL.rsplit("/chat/completions", 1)[0]
+STT_MODEL = os.getenv("LLM_STT_MODEL", "FunAudioLLM/SenseVoiceSmall")
+TTS_MODEL = os.getenv("LLM_TTS_MODEL", "FunAudioLLM/CosyVoice2-0.5B")
+TTS_VOICE = os.getenv("LLM_TTS_VOICE", "FunAudioLLM/CosyVoice2-0.5B:anna")
+
+
+async def transcribe(data: bytes, filename: str = "audio.webm") -> str:
+    """语音转文字（STT）。缺 key / 失败时返回空串。"""
+    if not API_KEY or not data:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(
+                f"{AUDIO_BASE}/audio/transcriptions",
+                headers={"Authorization": f"Bearer {API_KEY}"},
+                files={"file": (filename, data)},
+                data={"model": STT_MODEL},
+            )
+            resp.raise_for_status()
+            return (resp.json().get("text") or "").strip()
+    except Exception:
+        return ""
+
+
+async def synthesize(text: str) -> bytes | None:
+    """文字转语音（TTS），返回 mp3 字节。缺 key / 失败时返回 None。"""
+    if not API_KEY or not text:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(
+                f"{AUDIO_BASE}/audio/speech",
+                headers={"Authorization": f"Bearer {API_KEY}"},
+                json={"model": TTS_MODEL, "input": text, "voice": TTS_VOICE,
+                      "response_format": "mp3"},
+            )
+            resp.raise_for_status()
+            return resp.content
+    except Exception:
+        return None
+
 
 async def generate_image(prompt: str, image_data_url: str | None = None) -> str | None:
     """生成图片，返回 data:image/...;base64,... 或 None。可传参考图做 image-to-image。"""

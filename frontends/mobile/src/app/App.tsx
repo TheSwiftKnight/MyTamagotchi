@@ -6001,6 +6001,78 @@ function Esp32Screen({ navigate, archiveTabs }: { navigate: (s: Screen) => void;
   const [petState, setPetState] = useState<DevicePetState>("idle");
   const [activeControl, setActiveControl] = useState("TOUCH");
   const [eventCount, setEventCount] = useState(1);
+
+  // —— MIC 真·语音对话：录音 → POST /api/agents/{id}/voice_chat（STT→人设对话→TTS）→ 播放 ——
+  const [recording, setRecording] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceLine, setVoiceLine] = useState<string | null>(null);
+  const [voiceAgentId, setVoiceAgentId] = useState<number | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const playerRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    // Dotti(腊肠犬) 对应后端「狗」agent；找不到就用第一个
+    fetch("/api/agents")
+      .then(r => (r.ok ? r.json() : []))
+      .then((list: { id: number; category?: string }[]) => {
+        if (Array.isArray(list) && list.length) {
+          const dog = list.find(a => a.category === "狗");
+          setVoiceAgentId((dog || list[0]).id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      recorderRef.current?.stream?.getTracks?.().forEach(t => t.stop());
+      playerRef.current?.pause();
+    };
+  }, []);
+
+  const handleMicClick = async () => {
+    if (voiceBusy) return;
+    if (recording) { recorderRef.current?.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      recorderRef.current = rec;
+      chunksRef.current = [];
+      rec.ondataavailable = e => { if (e.data.size) chunksRef.current.push(e.data); };
+      rec.onstop = async () => {
+        setRecording(false);
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+        if (!blob.size) { setVoiceLine("没录到声音，再试一次？"); triggerPet("MIC", "idle"); return; }
+        setVoiceBusy(true);
+        setVoiceLine("让我想想……");
+        triggerPet("MIC", "talking");
+        try {
+          const fd = new FormData();
+          fd.append("file", blob, "voice.webm");
+          const res = await fetch(`/api/agents/${voiceAgentId ?? 1}/voice_chat`, { method: "POST", body: fd });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error((data as { detail?: string })?.detail || `语音对话失败(${res.status})`);
+          setVoiceLine(data.reply);
+          if (data.audio_base64) {
+            playerRef.current?.pause();
+            const audio = new Audio(`data:${data.audio_mime || "audio/mpeg"};base64,${data.audio_base64}`);
+            playerRef.current = audio;
+            audio.play().catch(() => {});
+          }
+        } catch (err) {
+          setVoiceLine(err instanceof Error ? err.message : "语音对话失败，再试一次？");
+        } finally {
+          setVoiceBusy(false);
+        }
+      };
+      rec.start();
+      setVoiceLine(null);
+      setRecording(true);
+      triggerPet("MIC", "listening");
+    } catch {
+      setVoiceLine("麦克风不可用：请检查浏览器麦克风权限");
+      triggerPet("MIC", "idle");
+    }
+  };
   const devicePet = DEVICE_PETS[selectedPet];
   const state = {
     ...DEVICE_PET_STATES[petState],
@@ -6044,7 +6116,8 @@ function Esp32Screen({ navigate, archiveTabs }: { navigate: (s: Screen) => void;
   }[] = [
     { id: "TOUCH", title: "轻触圆屏", detail: "抚摸 · 切换动作", icon: <Heart size={14}/>, nextState: "happy" },
     { id: "KEY", title: "KEY 按键", detail: `让${devicePet.name}回应`, icon: <Volume2 size={14}/>, nextState: "talking" },
-    { id: "MIC", title: "麦克风", detail: "唤醒 · 开始聆听", icon: <Mic size={14}/>, nextState: "listening" },
+    { id: "MIC", title: recording ? "■ 停止并发送" : "麦克风", icon: <Mic size={14}/>, nextState: "listening",
+      detail: recording ? "录音中 · 再点一下结束" : voiceBusy ? "思考中…" : "真·语音对话" },
     { id: "IMU", title: "轻晃设备", detail: "六轴感应 · 玩耍", icon: <RotateCw size={14}/>, nextState: "playful" },
   ];
 
@@ -6154,7 +6227,7 @@ function Esp32Screen({ navigate, archiveTabs }: { navigate: (s: Screen) => void;
                     zIndex: 2,
                   }}
                 >
-                  {state.speech}
+                  {voiceLine || (recording ? "我在听，说完再点一下 MIC～" : state.speech)}
                 </motion.div>
               </AnimatePresence>
 
@@ -6272,7 +6345,7 @@ function Esp32Screen({ navigate, archiveTabs }: { navigate: (s: Screen) => void;
               <button
                 key={control.id}
                 type="button"
-                onClick={() => triggerPet(control.id, control.nextState)}
+                onClick={() => (control.id === "MIC" ? handleMicClick() : triggerPet(control.id, control.nextState))}
                 className="text-left rounded-xl"
                 style={{
                   minHeight: 68,

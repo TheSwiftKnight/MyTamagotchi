@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import random
 import time
@@ -11,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, select
 
 from . import llm, pets, skills_runtime, world
@@ -190,6 +192,54 @@ async def chat_with_agent(agent_id: int, body: ChatIn, session: Session = Depend
     session.add(agent)
     session.commit()
     return {"reply": reply, "mood": effective_mood(agent)}
+
+
+@app.post("/api/agents/{agent_id}/voice_chat")
+async def voice_chat_with_agent(agent_id: int, file: UploadFile,
+                                session: Session = Depends(get_session)):
+    """语音对话：音频 → STT → 人设对话 → TTS。返回 transcript/reply/audio(base64 mp3)。
+
+    key 只在后端；音频模型走 llm.py 的 LLM_STT_MODEL / LLM_TTS_MODEL（SiliconFlow）。
+    TTS 失败不阻断——前端仍可显示文字回复。
+    """
+    agent = session.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(404, "agent not found")
+    data = await file.read()
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, "音频太大（上限 10MB）")
+    text = await llm.transcribe(data, file.filename or "audio.webm")
+    if not text:
+        raise HTTPException(422, "没听清，请再说一次")
+
+    memories = session.exec(select(Memory).where(Memory.agent_id == agent_id).order_by(Memory.created_at)).all()
+    skills = session.exec(select(Skill).where(Skill.agent_id == agent_id)).all()
+    reply = await llm.chat([
+        {"role": "system", "content": persona_prompt(agent, memories, skills)},
+        {"role": "user", "content": text},
+    ])
+    session.add(Memory(agent_id=agent.id, kind="chat", content=f"主人对我说：{text}"))
+    touch(agent)
+    session.add(agent)
+    # 世界 tick 长事务可能短暂持锁（SQLite 锁升级会立即 BUSY），带退避重试
+    for attempt in range(6):
+        try:
+            session.commit()
+            break
+        except OperationalError:
+            session.rollback()
+            if attempt == 5:
+                raise
+            await asyncio.sleep(0.4)
+
+    audio = await llm.synthesize(reply)
+    return {
+        "transcript": text,
+        "reply": reply,
+        "mood": effective_mood(agent),
+        "audio_base64": base64.b64encode(audio).decode() if audio else None,
+        "audio_mime": "audio/mpeg" if audio else None,
+    }
 
 
 class DispatchIn(BaseModel):
