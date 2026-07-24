@@ -1646,6 +1646,8 @@ function WorldDockScreen({
   onOpenChronicle: () => void;
   myAgents: BackendAgent[];
 }) {
+  // World Residents / 头部统计要的是「世界里全部的 agent」，不只是我的那几个
+  const { agents: allAgents } = useAgentDetails();
   const plazaCount = myAgents.filter(agent => agent.location === "plaza").length;
   const worldCards: { key: ThemedWorldKey; screen: Screen; houseId: string }[] = [
     { key: "fitness", screen: "everydayTown", houseId: "H04" },
@@ -1688,6 +1690,55 @@ function WorldDockScreen({
             <ChevronRight size={15} color="#6B9E7A"/>
           </div>
         </button>
+      </div>
+
+      {/* World Residents：回补生产站首页的居民卡片条。codex 那版铺的是本地
+          AGENT_PROFILES 常量，这里换成 GET /api/agents 的真实 agent：
+          形象走 agent.image，角色取 profile.role，没有再退回 category。
+          点卡片和「查看全部」都进 Agents 目录页（homeView = civilization）。 */}
+      <div className="pb-3">
+        <div className="px-5 mb-2 flex items-end justify-between">
+          <div>
+            <p style={{ fontSize: "var(--ui-font-heading)", fontWeight: 700, color: "#1C1911" }}>World Residents</p>
+            <p style={{ fontSize: "var(--ui-font-caption)", color: "#7A7468", marginTop: 3, fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
+              小小物件，也有鲜明人格
+            </p>
+          </div>
+          <button onClick={onOpenChronicle}
+            style={{ color: "#E8634A", fontSize: "var(--ui-font-body)", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
+            查看全部 →
+          </button>
+        </div>
+        <div className="flex gap-2 px-5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+          {allAgents.map(agent => {
+            const color = dbAgentColor(agent);
+            return (
+              <button key={agent.id} onClick={onOpenChronicle}
+                className="flex-shrink-0 rounded-xl overflow-hidden text-left"
+                aria-label={`在 Agents 档案里查看 ${agent.name}`}
+                style={{ width: 76, background: "#FAF6EF", border: "1.5px solid rgba(28,25,17,0.1)" }}>
+                <div className="relative flex items-center justify-center" style={{ height: 58, background: `${color}14` }}>
+                  <DbAgentAvatar agent={agent} size={52}/>
+                  {/* 状态色点：mood 是后端算出来的实时心情，不是装饰 */}
+                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full"
+                    title={`心情 ${agent.mood}`}
+                    style={{ background: agent.mood >= 60 ? "#6B9E7A" : agent.mood >= 35 ? "#D4A800" : "#E8634A" }}/>
+                </div>
+                <div className="px-2 py-1.5">
+                  <p className="truncate" style={{ fontSize: "var(--ui-font-body)", color: "#1C1911", fontWeight: 700 }}>{agent.name}</p>
+                  <p className="truncate" style={{ fontSize: "var(--ui-font-caption)", color, marginTop: 2, fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
+                    {agentRoleLabel(agent)}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+          {allAgents.length === 0 && (
+            <p style={{ color: "#8E867A", fontSize: "var(--ui-font-caption)", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
+              正在读取世界居民…
+            </p>
+          )}
+        </div>
       </div>
 
       {/* World cards */}
