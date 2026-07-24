@@ -4,6 +4,7 @@ unavailable so the demo never hard-fails."""
 import json
 import os
 import random
+import re
 from pathlib import Path
 
 import httpx
@@ -107,39 +108,91 @@ async def generate_image(prompt: str, image_data_url: str | None = None) -> str 
     return None
 
 
+def _log_llm_fail(model: str, reason: str) -> None:
+    print(f"[llm] {model} 调用失败 → {reason}", flush=True)
+
+
 async def chat(messages: list[dict], max_tokens: int = 400, temperature: float = 0.9,
-               model: str | None = None) -> str:
+               model: str | None = None, json_mode: bool = False) -> str:
     if not API_KEY:
         return random.choice(FALLBACK_LINES)
     models = [model] if model else [MODEL, *FALLBACK_MODELS]
     async with httpx.AsyncClient(timeout=120) as client:
         for model in models:
             try:
+                payload = {
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                }
+                if json_mode:
+                    # 让服务端做约束解码：小模型自由生成 JSON 会退化成重复吐 "}"，
+                    # 走 response_format 才能从协议层保证括号闭合。
+                    payload["response_format"] = {"type": "json_object"}
                 resp = await client.post(
                     BASE_URL,
                     headers={
                         "Authorization": f"Bearer {API_KEY}",
                         "Content-Type": "application/json",
                     },
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "max_tokens": max_tokens,
-                        "temperature": temperature,
-                    },
+                    json=payload,
                 )
                 resp.raise_for_status()
                 data = resp.json()
                 text = data["choices"][0]["message"]["content"].strip()
                 if text:
                     return text
-            except Exception:
-                continue
+                _log_llm_fail(model, "返回空内容")
+            except Exception as e:
+                # 这里原本是静默 continue：一旦限流/超时就无声退回兜底文案，
+                # 现场只看到「宠物答非所问」却查不出原因，所以必须留痕。
+                detail = getattr(getattr(e, "response", None), "text", "") or str(e)
+                _log_llm_fail(model, f"{type(e).__name__}: {detail[:200]}")
     return random.choice(FALLBACK_LINES)
 
 
 # 免费模型长 JSON 输出偶尔崩坏，最后兜底用便宜的付费文字模型保证可解析
 JSON_RESCUE_MODEL = os.getenv("LLM_JSON_RESCUE_MODEL") or os.getenv("OPENROUTER_JSON_RESCUE_MODEL", MODEL)
+
+
+def _repair_json(text: str) -> str:
+    """补齐小模型常漏的闭合符号。
+
+    7B 级模型很爱写出 `[{"a":1},{"b":2]` 这种——第二个对象漏了 `}`。
+    这类残缺 json.loads 直接抛错，整段结果就被丢掉退回兜底文案，
+    所以扫一遍括号栈：遇到不匹配的闭合符先补上栈顶欠的，末尾再补齐剩余的。
+    字符串内的括号不计入（否则台词里的「（笑）」会把栈算歪）。
+    """
+    out: list[str] = []
+    stack: list[str] = []
+    in_str = esc = False
+    for ch in text:
+        if in_str:
+            out.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            want = "{" if ch == "}" else "["
+            while stack and stack[-1] != want:      # 补上中途漏掉的闭合符
+                out.append("}" if stack.pop() == "{" else "]")
+            if stack:
+                stack.pop()
+        out.append(ch)
+    if in_str:
+        out.append('"')
+    while stack:
+        out.append("}" if stack.pop() == "{" else "]")
+    return re.sub(r",\s*([}\]])", r"\1", "".join(out))   # 去掉尾逗号
 
 
 def _parse_json(raw: str) -> dict | list | None:
@@ -152,8 +205,14 @@ def _parse_json(raw: str) -> dict | list | None:
     if start == -1:
         return None
     end = max(text.rfind("}"), text.rfind("]"))
+    # 被 max_tokens 截断时一个闭合符都没有，此时取到结尾交给 _repair_json 补
+    snippet = text[start : end + 1] if end > start else text[start:]
     try:
-        return json.loads(text[start : end + 1])
+        return json.loads(snippet)
+    except Exception:
+        pass
+    try:
+        return json.loads(_repair_json(snippet))
     except Exception:
         return None
 
@@ -161,8 +220,14 @@ def _parse_json(raw: str) -> dict | list | None:
 async def chat_json(messages: list[dict], max_tokens: int = 600) -> dict | list | None:
     """Ask for JSON output and parse it; retries down the model chain until it parses."""
     for model in [MODEL, *FALLBACK_MODELS, JSON_RESCUE_MODEL]:
-        raw = await chat(messages, max_tokens=max_tokens, temperature=0.7, model=model)
-        parsed = _parse_json(raw)
-        if parsed is not None:
-            return parsed
+        for json_mode in (True, False):     # 先用约束解码，模型不支持再退回自由生成
+            raw = await chat(messages, max_tokens=max_tokens, temperature=0.7,
+                             model=model, json_mode=json_mode)
+            parsed = _parse_json(raw)
+            if parsed is not None:
+                return parsed
+            # 解析不出来时把模型原话留一段：小模型经常改口说散文/中途截断，
+            # 不打出来根本分不清是「没调通」还是「调通了但格式崩」。
+            _log_llm_fail(model, f"JSON 解析失败(json_mode={json_mode})，"
+                                 f"原始输出前200字：{raw[:200]!r}")
     return None

@@ -681,28 +681,74 @@ async def pair_agents(body: PairIn, session: Session = Depends(get_session)):
         {"role": "system", "content": "你为像素宠物世界生成两个 agent 线下相遇的对话与灵魂契合评估。只输出 JSON。"},
         {"role": "user", "content": (
             f"两个来自不同主人的物品 agent 被主人举到镜头前「合影配对」，第一次正式认识。\n"
-            f"A：{brief(a, a_skills)}\nB：{brief(b, b_skills)}\n"
-            f"请基于两者的性格、技能与记忆输出 JSON：{{\n"
-            f'  "lines": [4~6条 {{"speaker": "A或B", "text": "不超过40字的台词"}}],\n'
-            f'  "resonance": {{"score": 两位主人灵魂契合度0-100的整数, '
-            f'"reason": "不超过40字的共鸣解释", "topic": "两位主人值得聊的那件事，不超过30字"}}\n'
+            f"{a.name}：{brief(a, a_skills)}\n{b.name}：{brief(b, b_skills)}\n"
+            f"要求：台词必须具体——点到对方的性格、技能或记忆里的细节，"
+            f"像两个真的有过往的小家伙在搭话，不要只说「你好」「幸会」这类客套话。\n"
+            f"请输出 JSON：{{\n"
+            f'  "lines": [4~6条 {{"speaker": "{a.name}" 或 "{b.name}", "text": "15到40个字的台词"}}]，'
+            f"两边轮流说,\n"
+            f'  "resonance": {{"score": 两位主人的灵魂契合度，百分制整数（0到100之间，例如 78），'
+            f'"reason": "不超过40字，说清楚是哪一点让两个世界共鸣", '
+            f'"topic": "两位主人见面后值得聊的那件具体的事，不超过30字"}}\n'
             f"}}"
         )},
-    ])
+    ], max_tokens=900)   # 4~6 条中文台词 + 契合度，600 会被截断在半句上
+
+    def _resolve_speaker(raw) -> Agent | None:
+        """小模型不一定照抄 speaker 标签：可能回名字、A/B、agent-3、甚至带引号。
+        逐层放宽匹配，认不出就返回 None（由调用方按顺序兜底），绝不整段丢弃台词。"""
+        s = str(raw or "").strip().strip("\"'（）()[]")
+        if not s:
+            return None
+        for who in (a, b):
+            if s == who.name or s == str(who.id) or s == f"agent-{who.id}":
+                return who
+        low = s.lower()
+        if low in ("a", "agent a", "第一位", "前者"):
+            return a
+        if low in ("b", "agent b", "第二位", "后者"):
+            return b
+        for who in (a, b):      # 最后再放宽到子串（"豆豆（狗）" 这类）
+            if who.name and who.name in s:
+                return who
+        return None
+
+    def _normalize_score(raw) -> int | None:
+        """标度纠偏：7B 级模型常把「契合度」按 0-10 或 0-1 理解，
+        直接当百分制会在大屏上显示成「契合度 7」，观感等同于失败。
+        分数还常被写成字符串 "85"，一并接住。"""
+        if isinstance(raw, bool):
+            return None
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if 0 < v <= 1:          # 0.78 这种小数比例
+            v *= 100
+        elif 1 < v <= 10:       # 7 / 8.5 这种十分制
+            v *= 10
+        return max(0, min(100, int(round(v))))
 
     lines: list[dict] = []
     resonance: dict = {}
     if isinstance(result_json, dict):
-        for item in result_json.get("lines") or []:
-            if isinstance(item, dict) and item.get("speaker") in ("A", "B"):
-                who = a if item["speaker"] == "A" else b
-                lines.append({"agent_id": who.id, "name": who.name, "image": who.image,
-                              "text": str(item.get("text", ""))[:60]})
+        for i, item in enumerate(result_json.get("lines") or []):
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text", "")).strip()
+            if not text:
+                continue
+            # 认不出说话人就按 A/B 交替兜底——宁可归错人，也好过整段台词消失
+            who = _resolve_speaker(item.get("speaker")) or (a if i % 2 == 0 else b)
+            lines.append({"agent_id": who.id, "name": who.name, "image": who.image,
+                          "text": text[:60]})
         r = result_json.get("resonance")
-        if isinstance(r, dict) and isinstance(r.get("score"), (int, float)):
-            resonance = {"score": max(0, min(100, int(r["score"]))),
-                         "reason": str(r.get("reason", ""))[:60],
-                         "topic": str(r.get("topic", ""))[:40]}
+        if isinstance(r, dict):
+            score = _normalize_score(r.get("score"))
+            if score is not None:
+                resonance = {"score": score,
+                             "reason": str(r.get("reason", ""))[:60],
+                             "topic": str(r.get("topic", ""))[:40]}
     if not lines:
         lines = [
             {"agent_id": a.id, "name": a.name, "image": a.image, "text": "你好呀，第一次见面！"},
