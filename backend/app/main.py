@@ -190,7 +190,16 @@ async def chat_with_agent(agent_id: int, body: ChatIn, session: Session = Depend
     session.add(Memory(agent_id=agent.id, kind="chat", content=f"主人对我说：{body.text}"))
     touch(agent)
     session.add(agent)
-    session.commit()
+    # 与 voice_chat 一致：世界 tick 若在写，带退避重试避免 BUSY→500→前端掉兜底
+    for attempt in range(6):
+        try:
+            session.commit()
+            break
+        except OperationalError:
+            session.rollback()
+            if attempt == 5:
+                raise
+            await asyncio.sleep(0.4)
     return {"reply": reply, "mood": effective_mood(agent)}
 
 

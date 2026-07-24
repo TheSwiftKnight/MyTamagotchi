@@ -140,37 +140,62 @@ def build_state(session: Session) -> dict:
 _tick_lock = asyncio.Lock()
 
 
+async def _commit_with_retry(session: Session, attempts: int = 6) -> None:
+    """SQLite 写提交带退避重试：即便偶发 BUSY 也不至于 500。"""
+    from sqlalchemy.exc import OperationalError
+    for i in range(attempts):
+        try:
+            session.commit()
+            return
+        except OperationalError:
+            session.rollback()
+            if i == attempts - 1:
+                raise
+            await asyncio.sleep(0.3)
+
+
 async def run_tick(session: Session, steps: int = 1) -> dict:
     async with _tick_lock:
-        meta = get_meta(session)
         steps = max(1, min(5, steps))
         for _ in range(steps):
-            meta.tick += 1
-            meta.minute += TICK_MINUTES
-            if meta.minute >= 24 * 60:
-                meta.minute -= 24 * 60
-                meta.day += 1
-            await _generate_event(session, meta)
-        meta.last_tick_at = now()
-        session.add(meta)
-        session.commit()
+            await _generate_event(session)
         return build_state(session)
 
 
-async def _generate_event(session: Session, meta: WorldMeta) -> None:
+async def _generate_event(session: Session, meta: WorldMeta | None = None) -> None:
+    # ── PHASE 1：只读，构造 prompt。读完立刻 rollback 释放快照，绝不持写锁调 LLM ──
+    # （旧实现在这里已持写锁，然后 await LLM 几十秒，把 /chat 全挡死 → 掉兜底。）
+    meta = get_meta(session)
     agents = session.exec(select(Agent)).all()
+
+    def _advance_clock(m: WorldMeta) -> None:
+        m.tick += 1
+        m.minute += TICK_MINUTES
+        if m.minute >= 24 * 60:
+            m.minute -= 24 * 60
+            m.day += 1
+        m.last_tick_at = now()
+
     if len(agents) < 2:
+        _advance_clock(meta)
+        session.add(meta)
+        await _commit_with_retry(session)
         return
+
     world_key = random.choice([a.world for a in agents])
     pool = [a for a in agents if a.world == world_key] or agents
     participants = random.sample(pool, min(len(pool), random.choice([2, 2, 3])))
     location = random.choice(LOCATIONS.get(world_key, ["小广场"]))
     etype = random.choice(EVENT_TYPES)
-
+    # rollback 后 ORM 对象会过期，先把要用的字段抓成纯数据
+    p_data = [(a.id, a.name, a.category, a.trait, a.mood) for a in participants]
     brief = "\n".join(
-        f"agent-{a.id}: {a.name}（{a.category}，性格：{a.trait}，心情：{_mood_word(a.mood)}）"
-        for a in participants
+        f"agent-{pid}: {pname}（{pcat}，性格：{ptrait}，心情：{_mood_word(pmood)}）"
+        for pid, pname, pcat, ptrait, pmood in p_data
     )
+    session.rollback()   # ★ 释放读快照——下面调 LLM 期间不持任何锁
+
+    # ── PHASE 2：慢 LLM，全程不碰 DB（不持锁）──
     gen = await llm.chat_json([
         {"role": "system", "content": "你是像素小世界的叙事引擎，为几个物品 agent 生成一段小事件。只输出 JSON。"},
         {"role": "user", "content": (
@@ -181,20 +206,23 @@ async def _generate_event(session: Session, meta: WorldMeta) -> None:
         )},
     ], max_tokens=800)
     if not isinstance(gen, dict):
-        a, b = participants[0], participants[1]
+        (a_id, a_name, *_), (b_id, b_name, *_) = p_data[0], p_data[1]
         gen = {
             "title": f"{location}的偶遇",
-            "summary": f"{a.name}和{b.name}在{location}碰面，聊起了各自的主人。",
+            "summary": f"{a_name}和{b_name}在{location}碰面，聊起了各自的主人。",
             "dialogue": [
-                {"agentId": f"agent-{a.id}", "text": "今天的风很舒服呀。"},
-                {"agentId": f"agent-{b.id}", "text": "是啊，要不要一起散散步？"},
+                {"agentId": f"agent-{a_id}", "text": "今天的风很舒服呀。"},
+                {"agentId": f"agent-{b_id}", "text": "是啊，要不要一起散散步？"},
             ],
             "consequence": "两位伙伴的羁绊加深了。",
         }
-    valid_ids = {f"agent-{a.id}" for a in participants}
+    valid_ids = {f"agent-{pid}" for pid, *_ in p_data}
     dialogue = [d for d in gen.get("dialogue", [])
                 if isinstance(d, dict) and d.get("agentId") in valid_ids][:5]
 
+    # ── PHASE 3：短写事务（带重试）。到这里才拿写锁，耗时 <50ms ──
+    meta = get_meta(session)
+    _advance_clock(meta)
     row = WorldEventRow(
         tick=meta.tick, day=meta.day, minute=meta.minute,
         type=etype, location=location,
@@ -204,15 +232,16 @@ async def _generate_event(session: Session, meta: WorldMeta) -> None:
         consequence=str(gen.get("consequence", ""))[:60],
     )
     session.add(row)
-    for a in participants:
-        session.add(Memory(agent_id=a.id, kind="world",
+    for pid, *_ in p_data:
+        session.add(Memory(agent_id=pid, kind="world",
                            content=f"[{row.title}] {row.summary}"))
     metrics = json.loads(meta.metrics)
     bump = {"ritual": "cohesion", "discovery": "knowledge", "debate": "knowledge",
             "invention": "creativity", "festival": "cohesion", "repair": "stewardship"}[etype]
     metrics[bump] = min(100, metrics[bump] + random.randint(1, 3))
     meta.metrics = json.dumps(metrics)
-    session.commit()
+    session.add(meta)
+    await _commit_with_retry(session)
 
 
 def reset(session: Session) -> None:

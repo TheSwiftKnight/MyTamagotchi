@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from sqlalchemy import event, text
 from sqlmodel import Session, SQLModel, create_engine
 
 DB_PATH = Path(__file__).resolve().parent.parent / "tamagotchi.db"
@@ -7,6 +8,17 @@ engine = create_engine(
     f"sqlite:///{DB_PATH}",
     connect_args={"check_same_thread": False, "timeout": 30},
 )
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, _record):
+    """每条连接都设 WAL + busy_timeout：读写并发时撞锁自动等待而非立刻 BUSY，
+    这是根治『世界 tick 与 /chat 抢写锁 → 500 → 掉兜底』的兜底闸。"""
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA busy_timeout=30000")
+    cur.execute("PRAGMA synchronous=NORMAL")
+    cur.close()
 
 
 def init_db() -> None:
