@@ -5,9 +5,10 @@ window.FW = window.FW || {};
 // 后端注册表接口；不可达（网络错/非 200）时回退本地静态 worlds.json，离线也能跑。
 // 依页面 hostname 推导而非写死 localhost：大屏常在另一台机器投屏打开，
 // 写死 localhost 会去连那台机器自己。file:// 直开时 hostname 为空，退回 127.0.0.1。
-FW.API_URL = (location.hostname
+FW.API_BASE = location.hostname
   ? `${location.protocol}//${location.hostname}:8000`
-  : "http://127.0.0.1:8000") + "/api/worlds";
+  : "http://127.0.0.1:8000";
+FW.API_URL = FW.API_BASE + "/api/worlds";
 
 FW.fetchRegistry = async function (base) {
   // 1) 优先后端

@@ -1,7 +1,8 @@
 /* ForkWorld 全局大地图 —— 摊位大屏模式
  * 整张 the Ville（140×100 tile / 4480×3200px）+ 所有用户世界分区挂牌
  * + 使者互访演出 + 灵魂连线 + 自动巡航镜头。
- * 数据：data/worlds.json（正式版换成后端 GET /worlds，同构）。 */
+ * 数据：后端 GET /api/worlds（不可达回退 data/worlds.json）；
+ * 每 3 秒轮询检测「刚发生的二维码配对」→ 两只当场走到一起、连线、从此结伴漫游。 */
 (async function boot() {
   // 加载期日志缓冲（内嵌浏览器 console 捕获不到 load 阶段，落到 window.__LOG 自查）
   window.__LOG = [];
@@ -53,6 +54,12 @@
     // Gemini 手绘素材（建筑/角色/装饰）+ 程序化大地/道路
     LOG("preload start");
     FW.Paper.preloadAssets(this);
+    // 真实形象：手机端生成的透明底宠物图（后端 /api/pets/...），与手机/配对大屏同一形象；
+    // 加载失败时 textures.exists 不成立，自动回退手绘角色贴图
+    this.load.crossOrigin = "anonymous";
+    for (const w of REG.worlds) {
+      if (w.image) this.load.image("agent_" + w.world_id, FW.API_BASE + w.image);
+    }
     this.load.on("loaderror", f => LOG("loaderror:", f.key));
     this.load.on("complete", () => LOG("load complete"));
   }
@@ -102,21 +109,29 @@
       // 挂牌（世界名 + 主人）—— 顶层，屏幕恒定大小
       w._plate = makePlate(this, w, px(w.region.anchor[0]), y0 * TILE - 8);
 
-      // 物品拟人使者（Gemini 手绘 PNG：lamp/book/headphones/mic/mug/plush）
+      // 行走形象：优先真实宠物图（与手机端同一形象），缺失/加载失败回退手绘角色
       const [ax, ay] = w.region.anchor;
-      const ck = FW.Paper.charKey(w.agent_kind);
+      const imgKey = "agent_" + w.world_id;
+      const ck = this.textures.exists(imgKey) ? imgKey : FW.Paper.charKey(w.agent_kind);
       const spr = this.add.image(px(ax), px(ay), ck).setOrigin(0.5, 0.88);
-      spr.setScale(60 / spr.height);
+      spr.setScale((ck === imgKey ? 68 : 60) / spr.height);
       spr.setDepth(Math.round(px(ay)) + 3);
       envoys[w.world_id] = {
         world: w, sprite: spr, key: ck, baseScale: spr.scaleX,
         tile: [ax, ay], path: [], speed: 90,
         onDone: null, visiting: false, nextWander: Date.now() + 2000 + Math.random() * 4000,
         bubble: null, dir: "down",
+        showEpoch: 0, partner: null, isLeader: false,
       };
     }
 
     beamsGfx = this.add.graphics().setDepth(9000);
+
+    // 历史羁绊开屏即连线（Bond 表持久化，后端重启不丢）
+    for (const v of REG.visits || []) {
+      const A = REG.byId[v.from], B = REG.byId[v.to];
+      if (A && B) addBeam(A, B, v);
+    }
 
     // —— 相机 ——（画布透明：地图外的留白透出页面星空底）
     cam.setBounds(0, 0, MAP_W, MAP_H);
@@ -167,6 +182,10 @@
     visitLoop();
     setCruiseLabel();
 
+    // 真实后端接入：记住已见过的配对，之后每 3 秒轮询检测新配对并即时开演
+    snapshotVisits();
+    setInterval(pollWorlds, 3000);
+
     // Scale.NONE：窗口缩放时手动把后备分辨率重设为 CSS×DPR，画布 CSS 保持逻辑像素
     const onResize = () => {
       const w = window.innerWidth, h = window.innerHeight;
@@ -180,7 +199,8 @@
     this.time.delayedCall(60, () => fitCamera(true));
 
     // 调试出口
-    window.__FW = { scene, cam, envoys, beams, REG, CruiseState, fitCamera, minZoom, playVisit, addBeam };
+    window.__FW = { scene, cam, envoys, beams, REG, CruiseState, fitCamera, minZoom,
+                    playVisit, addBeam, playPairMeet, pollWorlds };
     console.log("[FW] create done. cam", cam.width, cam.height, "zoom", cam.zoom);
   }
 
@@ -258,7 +278,15 @@
   }
 
   function addBeam(A, B, v) {
-    if (beams.some(b => b.v.visit_id === v.visit_id)) return;
+    const r = v && v.resonance;
+    if (!r || typeof r !== "object" || !r.hardware_feedback) return;   // 形状不对宁可不画
+    const old = beams.find(b => b.v.visit_id === v.visit_id);
+    if (old) {   // 同一对再次配对：分数/颜色就地更新
+      old.v = v;
+      old.color = Phaser.Display.Color.HexStringToColor(r.hardware_feedback.led_rgb).color;
+      old.label.setText(`❤ ${r.score}`).setStyle({ color: r.hardware_feedback.led_rgb });
+      return;
+    }
     const label = scene.add.text(0, 0, `❤ ${v.resonance.score}`, {
       fontFamily: T.fontMono, fontSize: "18px", color: v.resonance.hardware_feedback.led_rgb,
       backgroundColor: "rgba(28,25,17,0.75)", padding: { x: 8, y: 3 }, resolution: DPR,
@@ -285,13 +313,23 @@
     const dt = dtMs / 1000;
     for (const id in envoys) {
       const env = envoys[id];
-      // 漫游
+      // 漫游：单身在自家院里转，结伴的由 leader 领着满广场逛
       if (!env.visiting && !env.path.length && Date.now() > env.nextWander) {
-        const [x0, y0, x1, y1] = env.world.region.bounds;
-        const tx = Phaser.Math.Between(x0 + 1, x1 - 1), ty = Phaser.Math.Between(y0 + 1, y1 - 1);
-        env.speed = 60;
-        env.path = FW.walkSteps(env.tile, [tx, ty]);
-        env.nextWander = Date.now() + 3500 + Math.random() * 5000;
+        if (env.partner) {
+          if (env.isLeader && !env.partner.visiting && !env.partner.path.length) {
+            const [tx, ty] = randomPlazaTile();
+            env.speed = env.partner.speed = 60;
+            env.path = FW.walkSteps(env.tile, [tx, ty]);
+            env.partner.path = FW.walkSteps(env.partner.tile, [tx + 1, ty]);   // 并排走
+            env.nextWander = env.partner.nextWander = Date.now() + 4500 + Math.random() * 5000;
+          }
+        } else {
+          const [x0, y0, x1, y1] = env.world.region.bounds;
+          const tx = Phaser.Math.Between(x0 + 1, x1 - 1), ty = Phaser.Math.Between(y0 + 1, y1 - 1);
+          env.speed = 60;
+          env.path = FW.walkSteps(env.tile, [tx, ty]);
+          env.nextWander = Date.now() + 3500 + Math.random() * 5000;
+        }
       }
       if (env.path.length) {
         const [tx, ty] = env.path[0];
@@ -324,13 +362,19 @@
     }
   }
 
-  // ── 互访演出循环 ──────────────────────────────────────────────
+  // ── 互访演出循环（历史羁绊的环境演出；配对实况优先，结伴中的不参加） ──
   async function visitLoop() {
     await delay(5000);
     let i = 0;
     while (true) {
-      const v = REG.visits[i % REG.visits.length];
-      try { await playVisit(v); } catch (e) { console.error("visit error", e); }
+      const vs = REG.visits || [];
+      const v = vs.length ? vs[i % vs.length] : null;
+      const A = v && REG.byId[v.from], B = v && REG.byId[v.to];
+      const ea = A && envoys[A.world_id], eb = B && envoys[B.world_id];
+      const idle = e => e && !e.visiting && !e.partner;
+      if (v && idle(ea) && idle(eb) && !PairWatch.busy) {
+        try { await playVisit(v); } catch (e) { console.error("visit error", e); }
+      }
       await delay(9000);
       i++;
     }
@@ -340,12 +384,16 @@
     const A = REG.byId[v.from], B = REG.byId[v.to];
     if (!A || !B) return;
     const env = envoys[A.world_id];
+    const e0 = env.showEpoch;
+    const gone = () => env.showEpoch !== e0;   // 被配对实况抢占 → 静默退场，镜头归新演出管
     env.visiting = true;
     env.path = [];
     uiEvents.emit("visit:start", { sprite: env.sprite, visit: v });
     showBubble(env, `🚀 出发！去「${B.world.world_name}」做客`, 2600);
     await delay(1200);
+    if (gone()) return;
     await moveAlong(env, FW.walkSteps(env.tile, B.region.anchor), 300);
+    if (gone()) return;
 
     const bySlot = {};
     (v.bubbles || []).forEach(b => (bySlot[b.slot] = b.text));
@@ -353,17 +401,161 @@
       const t = B.slot_tiles[String(lm.slot)];
       if (!t) continue;
       await moveAlong(env, FW.walkSteps(env.tile, t), 240);
+      if (gone()) return;
       const text = bySlot[lm.slot];
       showBubble(env, `${FW.landmarkIcon(lm.type)} ${text || "……"}`, text ? 3200 : 1200);
       await delay(text ? 3400 : 1300);
+      if (gone()) return;
     }
 
     showBubble(env, `❤️ ${v.resonance.line}`, 4200);
     addBeam(A, B, v);
     await delay(4400);
+    if (gone()) return;
     await moveAlong(env, FW.walkSteps(env.tile, A.region.anchor), 320);
+    if (gone()) return;
     env.visiting = false;
     uiEvents.emit("visit:end");
+  }
+
+  // ── 配对实况：扫码成功 → 两只走到一起、当众交换台词、连线、从此结伴 ──
+  function preempt(env) {
+    // 抢占正在进行的演出：清走位、放行卡在 moveAlong 的 await，
+    // 原 playVisit 靠 showEpoch 变化感知被抢占后静默退出
+    env.showEpoch++;
+    env.path = [];
+    const cb = env.onDone; env.onDone = null; cb && cb();
+    if (env.bubble) { env.bubble.destroy(); env.bubble = null; }
+    env.visiting = false;
+  }
+
+  function couple(ea, eb) {
+    if (ea.partner) uncouple(ea);
+    if (eb.partner) uncouple(eb);
+    ea.partner = eb; eb.partner = ea;
+    ea.isLeader = true; eb.isLeader = false;
+    ea.nextWander = eb.nextWander = Date.now() + 2500;
+  }
+  function uncouple(env) {
+    const p = env.partner;
+    if (!p) return;
+    env.partner = p.partner = null;
+    env.isLeader = p.isLeader = false;
+  }
+
+  function randomPlazaTile() {
+    // 世界包围盒内随机逛（中央广场 + 各家门口），结伴环游全场
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const w of REG.worlds) {
+      const [a, b, c, d] = w.region.bounds;
+      x0 = Math.min(x0, a); y0 = Math.min(y0, b); x1 = Math.max(x1, c); y1 = Math.max(y1, d);
+    }
+    return [Phaser.Math.Between(x0 + 1, x1 - 2), Phaser.Math.Between(y0 + 1, y1 - 1)];
+  }
+
+  function spawnHearts(x, y, n) {
+    const glyphs = ["❤️", "🧡", "💛", "💕"];
+    for (let i = 0; i < n; i++) {
+      const t = scene.add.text(x + Phaser.Math.Between(-70, 70), y + Phaser.Math.Between(-20, 20),
+        glyphs[i % glyphs.length], { fontSize: "26px", resolution: DPR })
+        .setOrigin(0.5).setDepth(12500)
+        .setScale(Phaser.Math.Clamp(DPR / cam.zoom, DPR, 2.4 * DPR));
+      scene.tweens.add({
+        targets: t, y: t.y - Phaser.Math.Between(80, 150), alpha: 0,
+        duration: 1900 + Math.random() * 800, delay: i * 150,
+        ease: "Sine.easeOut", onComplete: () => t.destroy(),
+      });
+    }
+  }
+
+  async function playPairMeet(v) {
+    const A = REG.byId[v.from], B = REG.byId[v.to];
+    const ea = A && envoys[A.world_id], eb = B && envoys[B.world_id];
+    if (!ea || !eb) return;
+    preempt(ea); preempt(eb);
+    ea.visiting = eb.visiting = true;
+
+    const ma = A.region.anchor, mb = B.region.anchor;
+    const mid = [Math.round((ma[0] + mb[0]) / 2), Math.round((ma[1] + mb[1]) / 2)];
+    const side = ma[0] <= mb[0] ? 1 : -1;                       // A 在左则 A 站中点左侧
+    const ta = [mid[0] - side, mid[1]], tb = [mid[0] + side, mid[1]];
+
+    // 镜头：摊位高光时刻，直接切跟拍（观众手动拖动可随时夺回）
+    cam.panEffect.reset(); cam.zoomEffect.reset(); cam.stopFollow();
+    CruiseState.mode = "follow"; CruiseState.followSprite = ea.sprite; setCruiseLabel();
+    cam.pan(px(mid[0]), px(mid[1]), 1400, "Sine.easeInOut");
+    cam.zoomTo(0.85 * DPR, 1400, "Sine.easeInOut");
+
+    showBubble(ea, `📷 刚才镜头前的是${B.character}！`, 2600);
+    showBubble(eb, `📷 ${A.character}！过来一起走走！`, 2600);
+    await delay(1200);
+    await Promise.all([
+      moveAlong(ea, FW.walkSteps(ea.tile, ta), 230),
+      moveAlong(eb, FW.walkSteps(eb.tile, tb), 230),
+    ]);
+    ea.sprite.setFlipX(side < 0);                               // 面对面
+    eb.sprite.setFlipX(side > 0);
+
+    const cx = (px(ta[0]) + px(tb[0])) / 2, cy = px(mid[1]) - 30;
+    spawnHearts(cx, cy, 8);
+    const speakers = [ea, eb];
+    const lines = (v.bubbles || []).slice(0, 3);
+    for (let i = 0; i < lines.length; i++) {
+      showBubble(speakers[i % 2], lines[i].text, 3300);
+      await delay(3500);
+    }
+
+    // 结果揭晓：灵魂连线亮起 + 分数 + 双双起跳
+    addBeam(A, B, v);
+    spawnHearts(cx, cy, 12);
+    showBubble(ea, `❤ 灵魂契合 ${v.resonance.score} 分！`, 3400);
+    if (v.resonance.line) showBubble(eb, v.resonance.line, 3400);
+    for (const env of speakers) {
+      scene.tweens.add({ targets: env.sprite, y: env.sprite.y - 26, duration: 260,
+        yoyo: true, repeat: 2, ease: "Quad.easeOut" });
+    }
+    await delay(3600);
+
+    // 从此结伴在广场上漫游（新的配对会替换旧同伴）
+    couple(ea, eb);
+    ea.visiting = eb.visiting = false;
+    uiEvents.emit("visit:end");
+  }
+
+  // ── 真实后端接入：轮询 /api/worlds，检测「刚发生的配对」并即时开演 ──
+  const PairWatch = { seen: Object.create(null), queue: [], busy: false };
+  function snapshotVisits() {
+    for (const v of REG.visits || []) PairWatch.seen[v.visit_id] = v.pair_count || 1;
+  }
+  async function pollWorlds() {
+    let reg;
+    try { reg = await FW.fetchRegistry("."); } catch (e) { return; }   // 网络抖动，下轮再试
+    if (reg.source !== "fastapi-live") return;                          // 静态回退无实时性
+    // 世界名单变了（手机端捕获了新宠物）→ 重载重建整个场景
+    const ids = ws => ws.map(x => x.world_id).join(",");
+    if (ids(reg.worlds) !== ids(REG.worlds)) { location.reload(); return; }
+    // 就地更新互访数据：详情卡与连线始终反映最新台词与分数
+    REG.visits = reg.visits || [];
+    for (const w of REG.worlds) w._visits = [];
+    for (const v of REG.visits) {
+      if (REG.byId[v.from]) REG.byId[v.from]._visits.push(v);
+      if (REG.byId[v.to]) REG.byId[v.to]._visits.push(v);
+      const cnt = v.pair_count || 1, prev = PairWatch.seen[v.visit_id];
+      if (prev === undefined || cnt > prev) {   // 新羁绊，或同一对又碰了一次
+        PairWatch.seen[v.visit_id] = cnt;
+        PairWatch.queue.push(v);
+      }
+    }
+    drainPairQueue();
+  }
+  async function drainPairQueue() {
+    if (PairWatch.busy) return;
+    PairWatch.busy = true;
+    while (PairWatch.queue.length) {
+      const v = PairWatch.queue.shift();
+      try { await playPairMeet(v); } catch (e) { console.error("pair meet error", e); }
+    }
+    PairWatch.busy = false;
   }
 
   // ── 巡航 ──────────────────────────────────────────────────────
@@ -434,8 +626,9 @@
     for (const w of REG.worlds) {
       const el = document.createElement("div");
       el.className = "w-card";
-      // 卡片左侧嵌入该世界的物品拟人角色（与地图同一套 SVG 视觉语言）
-      el.innerHTML = `<div class="w-char"><img src="${FW.Paper.charUrl(w.agent_kind)}" alt=""></div>
+      // 卡片左侧嵌入真实形象（与地图/手机端同源），无图回退手绘角色
+      const icon = w.image ? FW.API_BASE + w.image : FW.Paper.charUrl(w.agent_kind);
+      el.innerHTML = `<div class="w-char"><img src="${icon}" alt=""></div>
         <div class="w-name">${w.world.world_name}</div>
         <div class="w-meta">${w.owner} · ${w.world.climate}</div>`;
       el.onclick = () => {
