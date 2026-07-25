@@ -126,7 +126,7 @@
       // 加时间戳强制重新加载——重复打开时 src 不变不会触发 onload，离线提示会误弹
       var timer = setTimeout(function () { offline.hidden = false; }, 6000);
       frame.onload = function () { clearTimeout(timer); offline.hidden = true; };
-      frame.src = PAIR_URL + "?t=" + Date.now();
+      frame.src = PAIR_URL + "?embed=1&t=" + Date.now();
     });
     document.getElementById("pair-close").addEventListener("click", function () {
       overlay.hidden = true;

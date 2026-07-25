@@ -9,6 +9,7 @@ SDK README 的忠告：不要写死设备序号（插拔/重启后会变），�
 """
 
 import re
+import select
 import subprocess
 import tempfile
 
@@ -115,6 +116,11 @@ class Camera:
             return "（读取 ffmpeg 日志失败）"
 
     def read(self):
+        # 看门狗：系统相机可能被其他应用抢占/休眠，管道静默停供，
+        # 裸 read 会永远阻塞 → 大屏冻在最后一帧。超时抛错让上层重开相机。
+        r, _, _ = select.select([self.proc.stdout], [], [], 5.0)
+        if not r:
+            raise RuntimeError(f"相机超过 5 秒无新帧（可能被其他应用抢占）：{self._err_tail()}")
         buf = self.proc.stdout.read(self._frame_size)
         if buf is None or len(buf) < self._frame_size:
             raise RuntimeError(f"ffmpeg 取流中断：{self._err_tail()}")

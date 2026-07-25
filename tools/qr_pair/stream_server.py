@@ -11,6 +11,7 @@ Link2 同一时刻只能有一个视频消费者（SDK 明确警告），所以�
 import json
 import queue
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -70,16 +71,26 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             last_seq = -1
+            last_send = 0.0
             try:
                 while True:
                     with _frame_cond:
                         _frame_cond.wait_for(lambda: _frame_seq != last_seq, timeout=2.0)
+                        if _frame_seq == last_seq:
+                            continue          # 超时醒来的重复帧不发（省带宽）
                         jpeg, last_seq = _frame, _frame_seq
                     if jpeg is None:
                         continue
+                    # 限流 ~15fps：不限流时 30fps 的 1080p MJPEG 会把浏览器解码队列
+                    # 压爆，画面不是变快而是整体冻住（真实踩坑）
+                    now = time.monotonic()
+                    if now - last_send < 1.0 / 15:
+                        continue
+                    last_send = now
                     self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n"
                                      + f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
                                      + jpeg + b"\r\n")
+                    self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 return
 

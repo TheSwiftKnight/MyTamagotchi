@@ -168,6 +168,12 @@
     .ov-score { font-size: 96px; }
     .ov-pair { font-size: 28px; }
   }
+
+  /* 内嵌模式（?embed=1，六环大屏盖层用）：藏掉右侧信息栏，相机画面铺满，
+     不再有「单独页面」的观感；配对演出遮罩不受影响照常弹出 */
+  body.embed { padding: 0; gap: 0; }
+  body.embed .side { display: none; }
+  body.embed .cam-card { border-radius: 0; border: none; box-shadow: none; }
 </style>
 </head>
 <body>
@@ -225,6 +231,9 @@
   </div>
 
 <script>
+  // 内嵌模式：六环大屏盖层以 ?embed=1 打开时，只保留相机画面（藏侧栏）
+  if (new URLSearchParams(location.search).get("embed")) document.body.classList.add("embed");
+
   // 支持双开法：http://<IP>:8700/（正式）或直接双击打开 html 文件（回落到本机服务）
   const HOST = (location.protocol === "file:" || !location.hostname)
       ? "127.0.0.1" : location.hostname;

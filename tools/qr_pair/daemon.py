@@ -182,6 +182,10 @@ def run_live(args, decoder: QRDecoder, fsm: PairFSM):
         while True:
             frame, last_seq = grab.get(last_seq)
             if frame is None:
+                if last_seq > 0:
+                    last_seq = 0   # 相机重开后新 Grabber 的 seq 从 0 计，允许重新追上
+                    continue
+                time.sleep(0.05)   # 相机未启动/暂停时别空转
                 continue
             t0 = time.time()
             results = decoder.decode_points(frame)
@@ -197,21 +201,31 @@ def run_live(args, decoder: QRDecoder, fsm: PairFSM):
 
     last_seq = 0
     try:
-        while True:
-            frame, last_seq = grab.get(last_seq)
-            if frame is None:
-                continue
-            with res_lock:
-                results = latest["results"] if time.time() - latest["ts"] < RESULT_TTL else []
-            vis = annotate(frame, results)
-            if args.serve_port:
-                ok, jpg = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                if ok:
-                    stream_server.set_frame(jpg.tobytes())
-            if args.show:
-                cv2.imshow("qr_pair", vis)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
+        while True:   # 外层：相机管道静默停供时（被抢占/休眠）整组重开，别让大屏冻在最后一帧
+            try:
+                while True:
+                    frame, last_seq = grab.get(last_seq)
+                    if frame is None:
+                        continue
+                    with res_lock:
+                        results = latest["results"] if time.time() - latest["ts"] < RESULT_TTL else []
+                    vis = annotate(frame, results)
+                    if args.serve_port:
+                        ok, jpg = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        if ok:
+                            stream_server.set_frame(jpg.tobytes())
+                    if args.show:
+                        cv2.imshow("qr_pair", vis)
+                        if cv2.waitKey(1) & 0xFF == ord("q"):
+                            return
+            except RuntimeError as e:
+                print(f"[camera] {e}\n[camera] 3 秒后重开相机…", flush=True)
+                grab.stop()
+                cam.release()
+                time.sleep(3)
+                cam = Camera(index=args.index)
+                grab = Grabber(cam)
+                last_seq = 0          # 新 Grabber 的 seq 从 0 计
     finally:
         grab.stop()
         cam.release()
