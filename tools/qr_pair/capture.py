@@ -80,22 +80,32 @@ class Camera:
         self.index = index
         self.w, self.h, self.fps = pick_mode(index)
         print(f"[camera] 设备支持模式中选用 {self.w}x{self.h}@{self.fps:g}fps", flush=True)
-        self._frame_size = self.w * self.h * 3
         self._stderr = tempfile.NamedTemporaryFile(prefix="qr_pair_ffmpeg_", suffix=".log")
-        self.proc = subprocess.Popen(
+        self.proc = self._open(self.w, self.h, self.fps)
+        # 读第一帧验证取流成功（权限/占用/参数错误会立刻暴露）
+        first = self.proc.stdout.read(self.w * self.h * 3)
+        if first is None or len(first) < self.w * self.h * 3:
+            # 部分设备（MacBook 内置相机等）只接受 1080p@30fps + uyvy422 组合，回退再试
+            print(f"[camera] {self.w}x{self.h}@{self.fps:g} 取流失败，回退 1920x1080@30fps", flush=True)
+            self.proc.kill()
+            self.w, self.h, self.fps = 1920, 1080, 30.0
+            self.proc = self._open(self.w, self.h, self.fps)
+            first = self.proc.stdout.read(self.w * self.h * 3)
+            if first is None or len(first) < self.w * self.h * 3:
+                raise RuntimeError(f"相机「{name}」(index={self.index}) 取流失败：{self._err_tail()}")
+        self._frame_size = self.w * self.h * 3
+
+    def _open(self, w: int, h: int, fps: float) -> subprocess.Popen:
+        return subprocess.Popen(
             ["ffmpeg", "-hide_banner", "-loglevel", "error",
              "-f", "avfoundation",
-             "-framerate", f"{self.fps:g}",
-             "-video_size", f"{self.w}x{self.h}",
+             "-framerate", f"{fps:g}",
+             "-video_size", f"{w}x{h}",
              "-pixel_format", "uyvy422",
              "-i", f"{self.index}:none",
              "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1"],
             stdout=subprocess.PIPE, stderr=self._stderr,
         )
-        # 读第一帧验证取流成功（权限/占用/参数错误会立刻暴露）
-        first = self.proc.stdout.read(self._frame_size)
-        if first is None or len(first) < self._frame_size:
-            raise RuntimeError(f"相机「{name}」(index={self.index}) 取流失败：{self._err_tail()}")
 
     def _err_tail(self) -> str:
         try:
