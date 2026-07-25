@@ -8,3 +8,4 @@ python-multipart>=0.0.9
 Pillow>=10.0
 redis>=5.0
 paho-mqtt>=2.0
+qrcode[pil]>=7.4

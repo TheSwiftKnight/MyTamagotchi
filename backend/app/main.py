@@ -10,13 +10,14 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from . import llm, pets, skills_runtime, world
 from .db import commit_with_retry, engine, get_session, init_db
-from .models import AGENT_LOCATIONS, Agent, AgentTemplate, Artifact, Memory, Skill, User, now
+from .models import (AGENT_LOCATIONS, Agent, AgentTemplate, Artifact, Bond,
+                     Memory, Skill, User, now)
 from .seed import seed, seed_templates, sync_default_skills
 
 app = FastAPI(title="My Tamagotchi API")
@@ -832,7 +833,25 @@ async def pair_agents(body: PairIn, session: Session = Depends(get_session)):
         asyncio.get_event_loop().create_task(_refresh_profile_digest(
             x.id, f"我在镜头前认识了{other.name}，契合度{resonance['score']}：{resonance['reason']}"))
 
+    # 羁绊落库：配对的持久化产物。世界 tick 会优先安排有羁绊的两只 agent 一起活动，
+    # /api/worlds 的互访连线也从这里读——后端重启不再丢配对历史。
+    lo, hi = sorted((id_a, id_b))
+    bond = session.exec(select(Bond).where(Bond.agent_a == lo, Bond.agent_b == hi)).first()
+    bond_is_new = bond is None
+    if bond is None:
+        bond = Bond(agent_a=lo, agent_b=hi)
+    else:
+        bond.pair_count += 1
+    bond.score = resonance["score"]
+    bond.reason = resonance["reason"]
+    bond.topic = resonance.get("topic", "")
+    bond.lines = json.dumps(lines, ensure_ascii=False)
+    bond.last_pair_at = now()
+    session.add(bond)
+    await commit_with_retry(session)
+
     result = {
+        "bond": {"pair_count": bond.pair_count, "is_new": bond_is_new},
         "pair_id": uuid.uuid4().hex[:12],
         "source": body.source,
         "agents": [agent_out(a, session), agent_out(b, session)],
@@ -850,6 +869,74 @@ async def pair_agents(body: PairIn, session: Session = Depends(get_session)):
 def pair_latest(agent_id: int):
     """某 agent 最近一次配对结果（QR 展示页轮询，配对成功后翻转为结果页）。"""
     return _pair_latest.get(agent_id) or {}
+
+
+@app.get("/api/pair/qr/{agent_id}.png")
+def pair_qr_png(agent_id: int, session: Session = Depends(get_session)):
+    """agent 的配对二维码 PNG（手机端「我的二维码」直接 <img> 引用）。"""
+    if not session.get(Agent, agent_id):
+        raise HTTPException(404, "agent 不存在")
+    import io
+
+    import qrcode
+    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M,
+                       box_size=16, border=4)
+    qr.add_data(f"{QR_PAIR_PREFIX}{agent_id}")
+    qr.make(fit=True)
+    buf = io.BytesIO()
+    qr.make_image(fill_color="black", back_color="white").save(buf, format="PNG")
+    return Response(content=buf.getvalue(), media_type="image/png",
+                    headers={"Cache-Control": "max-age=3600"})
+
+
+def _bond_out(bond: Bond, session: Session) -> dict:
+    a = session.get(Agent, bond.agent_a)
+    b = session.get(Agent, bond.agent_b)
+    return {
+        "id": bond.id,
+        "score": bond.score, "reason": bond.reason, "topic": bond.topic,
+        "pair_count": bond.pair_count,
+        "last_pair_at": bond.last_pair_at.isoformat() if bond.last_pair_at else "",
+        "last_activity_at": bond.last_activity_at.isoformat() if bond.last_activity_at else "",
+        "agents": [agent_out(x, session) for x in (a, b) if x],
+    }
+
+
+@app.get("/api/bonds")
+def list_bonds(session: Session = Depends(get_session)):
+    """全部羁绊（按最近配对倒序）：大屏「最近的相遇」与手机伙伴列表用。"""
+    bonds = session.exec(select(Bond).order_by(Bond.last_pair_at.desc())).all()
+    return [_bond_out(bond, session) for bond in bonds]
+
+
+@app.get("/api/agents/{agent_id}/bonds")
+def agent_bonds(agent_id: int, session: Session = Depends(get_session)):
+    """某 agent 的伙伴列表。"""
+    bonds = session.exec(select(Bond).where(
+        (Bond.agent_a == agent_id) | (Bond.agent_b == agent_id)
+    ).order_by(Bond.last_pair_at.desc())).all()
+    return [_bond_out(bond, session) for bond in bonds]
+
+
+class BondActivityIn(BaseModel):
+    agent_a: int | None = None   # 不传则取「最久没活动」的一对
+    agent_b: int | None = None
+
+
+@app.post("/api/bonds/activity")
+async def trigger_bond_activity(body: BondActivityIn, session: Session = Depends(get_session)):
+    """手动触发一次羁绊活动（摊位演示不用等 tick）。返回生成的世界事件。"""
+    bond_id = None
+    if body.agent_a is not None and body.agent_b is not None:
+        lo, hi = sorted((body.agent_a, body.agent_b))
+        bond = session.exec(select(Bond).where(Bond.agent_a == lo, Bond.agent_b == hi)).first()
+        if not bond:
+            raise HTTPException(404, "这两只 agent 还没配过对（先去镜头前合影）")
+        bond_id = bond.id
+    event = await world.run_bond_activity_locked(session, bond_id)
+    if event is None:
+        raise HTTPException(404, "还没有任何羁绊，先配对一次吧")
+    return {"event": event}
 
 
 # ---------- agent 编辑（identity → 加入世界） ----------
@@ -1197,23 +1284,20 @@ def list_worlds(session: Session = Depends(get_session)):
         })
 
     # 互访 = 二维码配对：配过的两个世界之间连一条线，游记用契合度结论。
-    # _pair_latest 对同一次配对存了两个键（a 和 b），故只取 key==ids[0] 那条去重
+    # 从 Bond 表读（持久化）——后端重启连线不丢，且累计所有历史配对。
     visits = []
-    for i, (key, rec) in enumerate(_pair_latest.items()):
-        ids = [a.get("id") for a in rec.get("agents", [])]
-        if len(ids) != 2:
-            continue
-        frm, to = f"w_agent{ids[0]}", f"w_agent{ids[1]}"
-        if frm == to or key != ids[0]:      # 每对只出一条（用较小方那次）
-            continue
-        res = rec.get("resonance") or {}
+    for i, bond in enumerate(session.exec(select(Bond).order_by(Bond.created_at)).all()):
+        try:
+            bond_lines = json.loads(bond.lines)
+        except Exception:
+            bond_lines = []
         visits.append({
-            "visit_id": f"v_pair{i:03d}",
-            "from": frm, "to": to,
+            "visit_id": f"v_bond{bond.id:03d}",
+            "from": f"w_agent{bond.agent_a}", "to": f"w_agent{bond.agent_b}",
             "bubbles": [{"slot": n, "text": l.get("text", "")}
-                        for n, l in enumerate(rec.get("lines", [])[:3])],
-            "travelogue": res.get("reason", ""),
-            "resonance": res.get("score"),
+                        for n, l in enumerate(bond_lines[:3])],
+            "travelogue": bond.reason,
+            "resonance": bond.score,
         })
 
     return {

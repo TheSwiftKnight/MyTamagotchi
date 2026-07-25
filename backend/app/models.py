@@ -45,6 +45,24 @@ class AgentTemplate(SQLModel, table=True):
     description: str = ""
 
 
+class Bond(SQLModel, table=True):
+    """二维码配对形成的羁绊（持久化）。约定 agent_a < agent_b 保证一对只有一行。
+
+    这是「配对之后 agent 能做活动」的根：世界 tick 会优先安排有羁绊的两只
+    agent 一起出事件（串门/合作/约玩/送礼），配对不再是一次性的演出。"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    agent_a: int = Field(index=True)
+    agent_b: int = Field(index=True)
+    score: int = 0            # 最新灵魂契合度
+    reason: str = ""          # 共鸣解释
+    topic: str = ""           # 值得聊的那件事
+    lines: str = "[]"         # 最近一次相遇台词 JSON（大屏互访气泡用）
+    pair_count: int = 1       # 累计配对次数（碰得越多羁绊越深）
+    created_at: datetime = Field(default_factory=now)
+    last_pair_at: datetime = Field(default_factory=now)
+    last_activity_at: datetime = Field(default_factory=now)
+
+
 class WorldEventRow(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     tick: int
