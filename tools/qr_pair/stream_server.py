@@ -53,7 +53,8 @@ class Handler(BaseHTTPRequestHandler):
             pass   # 客户端断开是常态，别刷 traceback
 
     def do_GET(self):
-        if self.path == "/" or self.path == "/index.html":
+        # 忽略查询串：父页（六环大屏）用 ?t= 时间戳强制 iframe 重载做在线探测
+        if self.path.split("?", 1)[0] in ("/", "/index.html"):
             body = (BASE_DIR / "bigscreen.html").read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
