@@ -64,6 +64,18 @@
     .pair-close:hover{background:#ece6d8}
     .pair-offline{position:fixed;inset:0;z-index:59;display:grid;place-items:center;text-align:center;color:var(--soft);font-size:15px;line-height:2;pointer-events:none}
     .pair-offline[hidden]{display:none}   /* class 的 display:grid 会盖掉 hidden 属性，必须显式补 */
+    /* 广场居民形象 + 灵魂连线 + 配对实况（真实后端驱动，见 light_app.js 尾段） */
+    #agent-layer,#fx-layer{position:absolute;inset:0;pointer-events:none}
+    .beam-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+    .agent-avatar{position:absolute;height:84px;translate:-50% -88%;pointer-events:none}
+    .agent-avatar img{height:100%;display:block;filter:drop-shadow(0 3px 3px rgba(73,58,38,.25))}
+    .agent-avatar .agent-fallback{display:grid;place-items:center;width:56px;height:56px;border-radius:50%;font-size:26px;box-shadow:0 3px 6px rgba(73,58,38,.25)}
+    .agent-avatar .jump{animation:agent-jump .9s ease-out}
+    @keyframes agent-jump{25%{transform:translateY(-22px)}50%{transform:translateY(0)}70%{transform:translateY(-14px)}100%{transform:translateY(0)}}
+    .agent-bubble{position:absolute;translate:-50% -100%;max-width:230px;padding:8px 12px;border:2px solid rgba(28,25,17,.85);border-radius:10px;background:rgba(255,255,255,.97);color:#34352f;font-size:13px;line-height:1.45;pointer-events:none;z-index:9999;box-shadow:0 4px 10px rgba(66,60,48,.15)}
+    .agent-heart{position:absolute;font-size:24px;translate:-50% -50%;pointer-events:none;z-index:9999;animation:heart-rise 2.2s ease-out forwards}
+    @keyframes heart-rise{to{transform:translateY(-110px);opacity:0}}
+    .beam-label{position:absolute;translate:-50% -50%;padding:3px 8px;border-radius:8px;background:rgba(28,25,17,.75);font:600 13px ui-monospace,SFMono-Regular,monospace;pointer-events:none;z-index:9998}
     .enter-world{display:flex;width:100%;height:42px;margin-top:14px;align-items:center;justify-content:center;border:1px solid #667154;border-radius:11px;background:#899878;color:#fff;font-weight:700;cursor:pointer}
     .enter-world:hover{background:#758663}.empty-house{padding:22px 0 8px;text-align:center}.empty-house strong{display:block;margin:7px 0;font-size:20px}.empty-house i{font-style:normal;font-size:38px}
     @media (max-width:720px){
