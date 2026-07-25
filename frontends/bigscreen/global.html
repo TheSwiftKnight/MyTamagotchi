@@ -127,7 +127,9 @@
   <script>
   /* 合影配对入口：盖层内嵌 qr_pair 识别大屏（daemon :8700，与后端同机） */
   (function () {
-    var PAIR_URL = location.protocol + "//" + (location.hostname || "127.0.0.1") + ":8700/";
+    // 相机 daemon 在摊位 Mac 本地跑：域名/VPS 打开大屏时用 ?pairhost=127.0.0.1 指回本机
+    var PAIR_HOST = new URLSearchParams(location.search).get("pairhost") || location.hostname || "127.0.0.1";
+    var PAIR_URL = location.protocol + "//" + PAIR_HOST + ":8700/";
     var overlay = document.getElementById("pair-overlay");
     var frame = document.getElementById("pair-frame");
     var offline = document.getElementById("pair-offline");
