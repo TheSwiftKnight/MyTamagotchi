@@ -47,6 +47,7 @@ import {
 } from "./skillForgeHarness";
 import { WebPlazaScene, type WebPlazaMember } from "./WebPlazaScene";
 import { ChainPlazaScreen } from "./ChainPlazaScreen";
+import { PairScreen } from "./PairScreen";
 import {
   chainPlazaAdapter,
   type ChainSkillListing,
@@ -103,7 +104,7 @@ type Screen =
   | "worldDock" | "capture" | "extract" | "lineArt"
   | "bringToLife" | "agentIdentity" | "motionPreview" | "placeInWorld"
   | "everydayTown" | "stardomDistrict" | "futureColony"
-  | "agentGallery" | "esp32";
+  | "agentGallery" | "esp32" | "pairQR";
 
 type WorldTheme = "everyday" | "stardom" | "future";
 
@@ -1701,6 +1702,28 @@ function WorldDockScreen({
               </div>
             </div>
             <ChevronRight size={15} color="#6B9E7A"/>
+          </div>
+        </button>
+      </div>
+
+      {/* 合影配对：调出我的二维码，和朋友举到摊位镜头前 → 结为羁绊 */}
+      <div className="px-5 pb-3">
+        <button onClick={() => navigate("pairQR")} className="w-full rounded-2xl p-3 text-left"
+          style={{
+            background: "linear-gradient(120deg, rgba(232,99,74,.14), rgba(216,201,151,.10))",
+            border: "1.5px solid rgba(232,99,74,.32)",
+          }}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: "#FAF6EF", color: "#E8634A" }}>
+                <Grid3X3 size={17}/>
+              </div>
+              <div>
+                <p style={{ color: "#1C1911", fontSize: "var(--ui-font-label)", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>合影配对</p>
+                <p style={{ color: "#7A7468", fontSize: "var(--ui-font-caption)", marginTop: 4, fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>调出二维码 · 镜头前认识新朋友</p>
+              </div>
+            </div>
+            <ChevronRight size={15} color="#E8634A"/>
           </div>
         </button>
       </div>
@@ -7374,6 +7397,7 @@ export default function App() {
     switch (s) {
       case "placeInWorld":     return <PlaceInWorldScreen navigate={navigate} profile={activeProfile} draft={editorDraft} onChange={updateEditorDraft} editing={editingExistingAgent} onDone={finishAgentEditor}/>;
       case "motionPreview":    return <MotionPreviewScreen navigate={navigate} profile={activeProfile} draft={editorDraft} onChange={updateEditorDraft}/>;
+      case "pairQR":           return <PairScreen myAgents={dbMyAgents}/>;
       default: return null;
     }
   };
