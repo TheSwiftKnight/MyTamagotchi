@@ -116,18 +116,24 @@
   .hero img { width: 100%; height: 100%; object-fit: contain;
               border-radius: 50%; border: 3px solid #1C1911; background: #EFE9DD; }
   .hero .fb { font-size: 92px; line-height: 108px; }
-  .hero.fly-l { animation: flyL .55s cubic-bezier(.45,0,.9,.6) both; }
-  .hero.fly-r { animation: flyR .55s cubic-bezier(.45,0,.9,.6) both; }
-  @keyframes flyL { from { opacity: 1; transform: translateX(-58vw) rotate(-40deg) scale(.7) }
-                    85% { transform: translateX(3vw) rotate(6deg) }
-                    to { opacity: 1; transform: none } }
-  @keyframes flyR { from { opacity: 1; transform: translateX(58vw) rotate(40deg) scale(.7) }
-                    85% { transform: translateX(-3vw) rotate(-6deg) }
-                    to { opacity: 1; transform: none } }
-  .hero.approach-l { opacity: 1; animation: appL 2.2s ease-in-out infinite alternate; }
-  .hero.approach-r { opacity: 1; animation: appR 2.2s ease-in-out infinite alternate; }
-  @keyframes appL { from { transform: translateX(-16vw) } to { transform: translateX(-2vw) } }
-  @keyframes appR { from { transform: translateX(16vw) } to { transform: translateX(2vw) } }
+  /* 从屏幕两边走到中间：身体平移 + 内部 img 颠簸（走路感） */
+  .hero.walk-l { animation: walkL 3s cubic-bezier(.35,.7,.35,1) both; }
+  .hero.walk-r { animation: walkR 3s cubic-bezier(.35,.7,.35,1) both; }
+  @keyframes walkL { from { opacity: 1; transform: translateX(-62vw) } to { opacity: 1; transform: none } }
+  @keyframes walkR { from { opacity: 1; transform: translateX(62vw) } to { opacity: 1; transform: none } }
+  .hero.walk-l img, .hero.walk-r img { animation: step .36s ease-in-out infinite; }
+  @keyframes step { 0%,100% { transform: translateY(0) rotate(-3deg) } 50% { transform: translateY(-8px) rotate(3deg) } }
+  /* 碰头后并排站着：轻轻起伏（等待 LLM 生成期间的 idle） */
+  .hero.together { opacity: 1; animation: idleBob 1.5s ease-in-out infinite alternate; }
+  @keyframes idleBob { from { transform: translateY(0) } to { transform: translateY(-6px) } }
+  /* 结果揭晓：高兴得跳起来 */
+  .hero.jump { opacity: 1; animation: jump .65s cubic-bezier(.3,1.4,.5,1) both; }
+  @keyframes jump { 0% { transform: translateY(0) } 40% { transform: translateY(-46px) } 100% { transform: translateY(0) } }
+  /* 相遇期间从中间冒起的小爱心 */
+  .heart { position: absolute; font-size: 22px; pointer-events: none; z-index: 5;
+           animation: heartUp 1.6s ease-out both; }
+  @keyframes heartUp { from { opacity: 0; transform: translateY(6px) scale(.5) } 20% { opacity: 1 }
+                       to { opacity: 0; transform: translateY(-90px) scale(1.15) rotate(12deg) } }
   .beam {
     width: 0; height: 10px; border-radius: 999px;
     background: linear-gradient(90deg, #E8A33C, #D95D39, #E8A33C);
@@ -304,24 +310,50 @@
     })();
   }
 
-  function setHeroes(ia, ib, mode) {
+  function setHeroes(ia, ib) {
     const ha = $("hero_a"), hb = $("hero_b");
     avatarInto(ha, ia); avatarInto(hb, ib);
     ha.className = "hero"; hb.className = "hero";
     void ha.offsetWidth;                       // 重置动画
-    if (mode === "approach") { ha.classList.add("approach-l"); hb.classList.add("approach-r"); }
-    if (mode === "fly")      { ha.classList.add("fly-l");      hb.classList.add("fly-r"); }
+  }
+
+  /* 相遇期间从两只中间持续冒小爱心 */
+  let heartTimer = null;
+  function startHearts() {
+    stopHearts();
+    heartTimer = setInterval(() => {
+      const h = document.createElement("span");
+      h.className = "heart";
+      h.textContent = ["🧡", "❤️", "💛"][Math.floor(Math.random() * 3)];
+      h.style.left = (44 + Math.random() * 12) + "%";
+      h.style.top = "55%";
+      $("heroes").appendChild(h);
+      h.addEventListener("animationend", () => h.remove());
+    }, 650);
+  }
+  function stopHearts() {
+    clearInterval(heartTimer); heartTimer = null;
+    document.querySelectorAll("#heroes .heart").forEach(h => h.remove());
   }
 
   function showPairing(ida, idb) {
     clearTimeout(hideTimer);
-    stopFx();
+    stopFx(); stopHearts();
     $("beam").className = "beam";
     $("ov_wait").style.display = "flex";
     $("ov_body").style.display = "none";
     const a = agents[ida] || {}, b = agents[idb] || {};
-    setHeroes(a.image, b.image, "approach");
+    setHeroes(a.image, b.image);
     $("overlay").classList.add("show");
+    // 两只从屏幕两边走到一块（3s），碰头后并排站着 + 冒爱心，等 LLM 生成
+    const ha = $("hero_a"), hb = $("hero_b");
+    ha.classList.add("walk-l"); hb.classList.add("walk-r");
+    setTimeout(() => {
+      if (ha.classList.contains("walk-l")) {   // 结果还没到才转 idle
+        ha.className = "hero together"; hb.className = "hero together";
+        startHearts();
+      }
+    }, 3050);
     setStatus("捕捉到两个世界！正在生成相遇故事…", true);
   }
 
@@ -356,12 +388,17 @@
     if (r.learned) { lb.style.display = ""; lb.textContent = "✨ " + r.learned.learner + " 学会了「" + r.learned.skill + "」"; }
     else lb.style.display = "none";
 
-    /* 演出序列：飞入(0-550ms) → 撞击(550ms) → 内容浮现 */
+    /* 演出序列：两只已经站在一起 → 高兴得跳起来 → 跳到最高点时冲击波+彩纸 → 内容浮现 */
     $("overlay").classList.add("show");
+    stopHearts();
     $("beam").className = "beam";
-    setHeroes(ag[0] && ag[0].image, ag[1] && ag[1].image, "fly");
+    const ha = $("hero_a"), hb = $("hero_b");
+    if (!ha.innerHTML || !hb.innerHTML)        // 页面中途刷新错过 pairing 事件也能兜底
+      setHeroes(ag[0] && ag[0].image, ag[1] && ag[1].image);
+    ha.className = "hero jump"; hb.className = "hero jump";
+    setTimeout(() => { ha.className = "hero together"; hb.className = "hero together"; startHearts(); }, 800);
 
-    setTimeout(() => {                                   // 撞击瞬间
+    setTimeout(() => {                                   // 跳到最高点的瞬间
       $("ov_inner").classList.remove("shake"); void $("ov_inner").offsetWidth;
       $("ov_inner").classList.add("shake");
       $("flashfx").className = "flashfx"; void $("flashfx").offsetWidth;
@@ -378,11 +415,11 @@
       reveal($("ov_reason"), 0.9);
       reveal($("ov_topic"), 1.2);
       if (r.learned) reveal(lb, 1.5);
-    }, 550);
+    }, 260);
 
     addRecent(names, sc);
     setStatus("灵魂契合 " + sc + " 分！下一组请举牌", false);
-    hideTimer = setTimeout(() => { $("overlay").classList.remove("show"); stopFx(); }, 18000);
+    hideTimer = setTimeout(() => { $("overlay").classList.remove("show"); stopFx(); stopHearts(); }, 18000);
   }
 
   function addRecent(names, score) {
