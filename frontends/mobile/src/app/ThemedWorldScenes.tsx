@@ -305,6 +305,7 @@ function WorldCanvas({
   onDecorationMove,
   onDecorationRemove,
   onSpeakerChange,
+  onResidentOpen,
   overrideSpeech = null,
 }: {
   config: ThemedWorldConfig;
@@ -314,8 +315,10 @@ function WorldCanvas({
   onDecorationMove?: (id: number, x: number, y: number) => void;
   onDecorationRemove?: (id: number) => void;
   onSpeakerChange?: (residentId: string) => void;
-  /** 主人日记的 agent 回复：显示在该居民头上，优先于自动轮播对话。 */
-  overrideSpeech?: { residentId: string; name: string; text: string } | null;
+  /** 点击居民 → 打开其档案（简介 + 记忆 + 技能）。 */
+  onResidentOpen?: (residentId: string) => void;
+  /** 主人日记的 agent 回复 / 对谈播放：显示在该居民头上，优先于自动轮播对话。 */
+  overrideSpeech?: { residentId: string; name: string; text: string; label?: string } | null;
 }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const initialMotionRef = useRef<ResidentMotion[] | null>(null);
@@ -348,7 +351,7 @@ function WorldCanvas({
         setLineIndex((current) => (current + 1) % config.dialogue.length);
         setSpeechVisible(true);
       }, 260);
-    }, 4200);
+    }, 9000);
 
     return () => {
       window.clearInterval(lineTimer);
@@ -668,7 +671,10 @@ function WorldCanvas({
             type="button"
             className={`fixed-world-resident ${resident.featured ? "is-featured" : ""} ${resident.visitor ? "is-visitor" : ""} ${isSpeaking ? "is-speaking" : ""}`}
             key={resident.id}
-            onClick={() => onSpeakerChange?.(resident.id)}
+            onClick={() => {
+              onSpeakerChange?.(resident.id);
+              onResidentOpen?.(resident.id);
+            }}
             style={{
               "--resident-x": `${position.x * 100}%`,
               "--resident-y": `${position.y * 100}%`,
@@ -698,7 +704,7 @@ function WorldCanvas({
                 "--speech-y": `${overridePosition.y * 100}%`,
               } as CSSProperties}
             >
-              <span>{overrideSpeech.name} · 回应主人</span>
+              <span>{overrideSpeech.name} · {overrideSpeech.label ?? "回应主人"}</span>
               <p>{overrideSpeech.text}</p>
             </div>
           )}
@@ -770,6 +776,8 @@ export function ThemedWorldScreen({
   onCapture,
   onBack,
   onSendDiary,
+  onConverse,
+  onResidentOpen,
 }: {
   config: ThemedWorldConfig;
   residents: ThemedWorldResident[];
@@ -782,6 +790,10 @@ export function ThemedWorldScreen({
   onBack: () => void;
   /** 主人输入日记/心情 → 后端挑一位本世界 agent 记忆并回复。 */
   onSendDiary?: (text: string) => Promise<{ residentId: string; name: string; text: string } | null>;
+  /** 一键让本世界两位居民聊聊主人；返回待播放的台词序列。 */
+  onConverse?: () => Promise<{ residentId: string; name: string; text: string; label?: string }[]>;
+  /** 点击居民 → 打开档案。 */
+  onResidentOpen?: (residentId: string) => void;
 }) {
   const { world, error } = useWorldEvolution(3500);
   const [activeResidentId, setActiveResidentId] = useState(residents[0]?.id || "");
@@ -789,8 +801,36 @@ export function ThemedWorldScreen({
   const [diaryText, setDiaryText] = useState("");
   const [diarySending, setDiarySending] = useState(false);
   const [diaryError, setDiaryError] = useState("");
-  const [ownerReply, setOwnerReply] = useState<{ residentId: string; name: string; text: string } | null>(null);
+  const [ownerReply, setOwnerReply] = useState<{ residentId: string; name: string; text: string; label?: string } | null>(null);
   const ownerReplyTimer = useRef<number | null>(null);
+  const [conversing, setConversing] = useState(false);
+  const converseStepTimer = useRef<number | null>(null);
+
+  const startConverse = async () => {
+    if (conversing || !onConverse) return;
+    setConversing(true);
+    try {
+      const lines = await onConverse();
+      if (!lines.length) {
+        setConversing(false);
+        return;
+      }
+      let index = 0;
+      const step = () => {
+        if (index >= lines.length) {
+          setOwnerReply(null);
+          setConversing(false);
+          return;
+        }
+        setOwnerReply(lines[index]);
+        index += 1;
+        converseStepTimer.current = window.setTimeout(step, 3400);
+      };
+      step();
+    } catch {
+      setConversing(false);
+    }
+  };
 
   const submitDiary = async () => {
     const text = diaryText.trim();
@@ -814,6 +854,7 @@ export function ThemedWorldScreen({
 
   useEffect(() => () => {
     if (ownerReplyTimer.current) window.clearTimeout(ownerReplyTimer.current);
+    if (converseStepTimer.current) window.clearTimeout(converseStepTimer.current);
   }, []);
   const [chainReceiptVisible, setChainReceiptVisible] = useState(false);
   const [chainCallPending, setChainCallPending] = useState(false);
@@ -899,8 +940,21 @@ export function ThemedWorldScreen({
           onDecorationMove={onDecorationMove}
           onDecorationRemove={onDecorationRemove}
           onSpeakerChange={setActiveResidentId}
+          onResidentOpen={onResidentOpen}
           overrideSpeech={ownerReply}
         />
+        {onConverse && residents.length >= 2 && (
+          <button
+            type="button"
+            className="themed-world-converse"
+            onClick={startConverse}
+            disabled={conversing}
+            aria-label="让居民聊聊主人"
+          >
+            <Radio size={10}/>
+            <span>{conversing ? "对谈进行中…" : "让居民聊聊主人"}</span>
+          </button>
+        )}
         <button
           type="button"
           className={`themed-world-chain-skill ${chainReceiptVisible ? "is-receipt" : ""}`}

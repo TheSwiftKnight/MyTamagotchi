@@ -226,7 +226,7 @@ def retry(job_id: str) -> dict:
     return job
 
 
-async def register(job_id: str, owner_id: int = 1) -> dict:
+async def register(job_id: str, owner_id: int = 1, location: str = "vitality-gym-town") -> dict:
     """注册：生成人设 → 建 Agent（进 inventory 日常精灵）→ 记入 index。"""
     job = JOBS.get(job_id)
     if not job or job.get("status") != "ready":
@@ -241,7 +241,7 @@ async def register(job_id: str, owner_id: int = 1) -> dict:
         {"role": "user", "content": (
             f"角色名字：{job['name']}。生成 JSON：{{\"trait\": \"20字以内性格\", "
             f"\"personality\": [\"三个\", \"性格\", \"关键词\"], \"temperament\": \"10字气质描述\", "
-            f"\"category\": \"这个名字最可能的物品/生物类型（两三个字）\", \"greeting\": \"25字初次见面台词\"}}"
+            f"\"greeting\": \"25字初次见面台词\"}}"
         )},
     ]) or {}
     asset = dict(job["asset"])
@@ -253,11 +253,10 @@ async def register(job_id: str, owner_id: int = 1) -> dict:
         agent = Agent(
             owner_id=owner_id,
             name=job["name"],
-            category=persona.get("category", "宠物"),
             image=asset["finalUrl"],
             trait=persona.get("trait", "刚被拍进世界的新伙伴"),
             mood=90,
-            location="vitality-gym-town",
+            location=location,
         )
         session.add(agent)
         session.commit()

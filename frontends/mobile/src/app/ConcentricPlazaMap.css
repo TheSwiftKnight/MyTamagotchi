@@ -106,11 +106,18 @@
 }
 
 .concentric-plaza-map__house:hover,
-.concentric-plaza-map__house:focus-visible {
+.concentric-plaza-map__house:focus-visible,
+.concentric-plaza-map__house.is-occupied {
   z-index: 9;
-  background: color-mix(in srgb, var(--house-color) 10%, rgba(250, 247, 239, .22));
-  border-color: color-mix(in srgb, var(--house-color) 58%, #615d54);
+  background: color-mix(in srgb, var(--house-color) 12%, rgba(250, 247, 239, .25));
+  border-color: color-mix(in srgb, var(--house-color) 64%, #615d54);
   outline: none;
+}
+
+.concentric-plaza-map__house:hover::after,
+.concentric-plaza-map__house:focus-visible::after,
+.concentric-plaza-map__house.is-occupied::after {
+  border-color: rgba(250, 247, 239, .94);
 }
 
 .concentric-plaza-map__house span {
@@ -140,6 +147,16 @@
 .concentric-plaza-map__house.is-featured::after,
 .concentric-plaza-map__house.is-user-world::after {
   background: var(--house-color);
+  opacity: 1;
+}
+
+/* 已入住的房子常驻悬浮外观（无过渡，直接可见），方便一眼识别 */
+.concentric-plaza-map__house.is-occupied span {
+  opacity: 1;
+  transition: none;
+}
+
+.concentric-plaza-map__house.is-selectable span {
   opacity: 1;
 }
 

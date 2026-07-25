@@ -33,7 +33,7 @@ ME_USER_ID = 1  # ForkWorld UI 为单用户 demo，其余种子用户提供广�
 
 async def _auto_tick_loop():
     while True:
-        await asyncio.sleep(45)
+        await asyncio.sleep(50)
         try:
             with Session(engine) as session:
                 meta = world.get_meta(session)
@@ -59,7 +59,7 @@ async def _backfill_line_art_images():
                 agent = session.get(Agent, agent_id)
                 if not agent or agent.image:
                     continue
-                subject = f"一只叫「{agent.name}」的{agent.category}"
+                subject = f"一个叫「{agent.name}」的可爱小伙伴（{agent.trait[:12]}）"
             url = await pets.generate_line_art(subject)
             if url:
                 with Session(engine) as session:
@@ -76,7 +76,7 @@ async def _backfill_line_art_images():
                 tpl = session.get(AgentTemplate, template_id)
                 if not tpl or tpl.image:
                     continue
-                subject = f"一只叫「{tpl.name}」的{tpl.category}"
+                subject = f"一个叫「{tpl.name}」的可爱小伙伴（{tpl.description[:12]}）"
             url = await pets.generate_line_art(subject)
             if url:
                 with Session(engine) as session:
@@ -115,7 +115,6 @@ def agent_out(agent: Agent, session: Session) -> dict:
         "owner_id": agent.owner_id,
         "owner_name": owner.username if owner else "?",
         "name": agent.name,
-        "category": agent.category,
         "image": agent.image,
         "trait": agent.trait,
         "mood": effective_mood(agent),
@@ -138,7 +137,7 @@ def persona_prompt(agent: Agent, memories: list[Memory], skills: list[Skill]) ->
     digest_text = f"你对主人和世界的长期印象：{digest}\n" if digest else ""
     return (
         f"你是一个像素风电子宠物世界里的物品 agent。\n"
-        f"名字：{agent.name}；类型：{agent.category}；性格：{agent.trait}。\n"
+        f"名字：{agent.name}；性格：{agent.trait}。\n"
         f"你拥有的技能：{skill_text}。\n"
         f"{digest_text}"
         f"你的记忆：\n{mem_text}\n"
@@ -216,44 +215,6 @@ def get_agent(agent_id: int, session: Session = Depends(get_session)):
     return out
 
 
-class ScanIn(BaseModel):
-    owner_id: int
-    category: str
-    name: str | None = None
-
-
-@app.post("/api/agents/scan")
-async def scan_agent(body: ScanIn, session: Session = Depends(get_session)):
-    """相机扫描的 placeholder：直接根据类型生成一个新 agent。"""
-    gen = await llm.chat_json([
-        {"role": "system", "content": "你负责为像素风电子宠物世界的新物品生成人设。只输出 JSON。"},
-        {"role": "user", "content": (
-            f"物品类型：{body.category}。生成 JSON：{{\"name\": \"两个字的可爱中文名字\", "
-            f"\"trait\": \"20字以内的性格描述\", \"greeting\": \"30字以内的初次见面台词\"}}"
-        )},
-    ])
-    if not isinstance(gen, dict):
-        gen = {"name": body.category + "仔", "trait": "刚被扫描进来的新伙伴，还在熟悉环境", "greeting": "你好呀，我是新来的！"}
-    name = body.name or gen.get("name", body.category + "仔")
-    image = await pets.generate_line_art(f"一只叫「{name}」的{body.category}") or ""
-    agent = Agent(
-        owner_id=body.owner_id,
-        name=name,
-        category=body.category,
-        image=image,
-        trait=gen.get("trait", ""),
-        mood=90,
-    )
-    session.add(agent)
-    session.commit()
-    session.refresh(agent)
-    session.add(Memory(agent_id=agent.id, kind="chat", content=f"我被主人扫描进了这个世界，成为了一只{body.category}。"))
-    session.commit()
-    out = agent_out(agent, session)
-    out["greeting"] = gen.get("greeting", "你好呀！")
-    return out
-
-
 class ChatIn(BaseModel):
     text: str
 
@@ -323,7 +284,7 @@ async def voice_chat_with_agent(agent_id: int, file: UploadFile,
 
 
 class DispatchIn(BaseModel):
-    location: str  # AGENT_LOCATIONS 之一
+    location: str  # AGENT_LOCATIONS 之一，或 "home"（召回去广场前所在的世界）
 
 
 @app.post("/api/agents/{agent_id}/dispatch")
@@ -331,9 +292,18 @@ def dispatch_agent(agent_id: int, body: DispatchIn, session: Session = Depends(g
     agent = session.get(Agent, agent_id)
     if not agent:
         raise HTTPException(404, "agent not found")
-    if body.location not in AGENT_LOCATIONS:
-        raise HTTPException(400, f"location 必须是 {'/'.join(AGENT_LOCATIONS)} 之一")
-    agent.location = body.location
+    profile = _profile_dict(agent)
+    target = body.location
+    if target == "home":
+        target = profile.get("home_world") or "vitality-gym-town"
+        if target == "plaza":
+            target = "vitality-gym-town"
+    if target not in AGENT_LOCATIONS:
+        raise HTTPException(400, f"location 必须是 {'/'.join(AGENT_LOCATIONS)} 之一或 home")
+    if target == "plaza" and agent.location != "plaza":
+        profile["home_world"] = agent.location  # 记住来自哪个世界，召回时用
+        agent.profile = json.dumps(profile, ensure_ascii=False)
+    agent.location = target
     session.add(agent)
     session.commit()
     return agent_out(agent, session)
@@ -359,14 +329,13 @@ async def adopt_template(template_id: int, body: AdoptIn, session: Session = Dep
         raise HTTPException(404, "template not found")
     if not tpl.image:
         # 模板还没有线条风形象：现场用 capture 管线生成一张并缓存回模板
-        tpl.image = await pets.generate_line_art(f"一只叫「{tpl.name}」的{tpl.category}") or ""
+        tpl.image = await pets.generate_line_art(f"一个叫「{tpl.name}」的可爱小伙伴（{tpl.description[:12]}）") or ""
         if tpl.image:
             session.add(tpl)
             session.commit()
     agent = Agent(
         owner_id=body.owner_id,
         name=body.name or tpl.name,
-        category=tpl.category,
         image=tpl.image,
         trait=tpl.trait,
         mood=90,
@@ -476,14 +445,9 @@ async def invoke_skill(agent_id: int, skill_id: int, body: InvokeIn,
                 artifacts[v] = {"path": art.path, "mime": art.mime}
 
     def save_artifact(data: bytes, mime: str) -> str:
-        aid = uuid.uuid4().hex[:12]
-        ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}.get(mime, ".bin")
-        path = skills_runtime.UPLOADS_DIR / f"{aid}{ext}"
-        path.parent.mkdir(exist_ok=True)
-        path.write_bytes(data)
-        session.add(Artifact(id=aid, mime=mime, path=str(path), size=len(data)))
-        session.commit()
-        return f"/api/artifacts/{aid}"
+        # 生成图不存储（不落盘、不建 Artifact），直接内嵌 data URL 返回给前端展示
+        import base64 as _b64
+        return f"data:{mime};base64,{_b64.b64encode(data).decode()}"
 
     output = await skills_runtime.invoke(skill.def_id, dict(body.inputs), artifacts, save_artifact)
 
@@ -521,7 +485,7 @@ async def write_diary(body: DiaryIn, session: Session = Depends(get_session)):
         agents = located or agents
     if not agents:
         raise HTTPException(400, "no agents")
-    roster = "\n".join(f"{a.id}: {a.name}（{a.category}）— {a.trait}" for a in agents)
+    roster = "\n".join(f"{a.id}: {a.name} — {a.trait}" for a in agents)
     routed = await llm.chat_json([
         {"role": "system", "content": "你是路由器，负责把主人的日记分配给最相关的物品 agent。只输出 JSON。"},
         {"role": "user", "content": (
@@ -571,32 +535,43 @@ async def world_converse(body: WorldIn, session: Session = Depends(get_session))
     def brief(x: Agent) -> str:
         mems = session.exec(select(Memory).where(Memory.agent_id == x.id).order_by(Memory.created_at.desc())).all()[:5]
         mem = "；".join(m.content for m in mems) or "无"
-        return f"{x.name}（{x.category}，性格：{x.trait}，记忆：{mem}）"
+        return f"{x.name}（性格：{x.trait}，记忆：{mem}）"
 
-    dialog = await llm.chat_json([
-        {"role": "system", "content": "你为像素宠物世界生成两个物品 agent 的闲聊。只输出 JSON 数组。"},
+    gen = await llm.chat_json([
+        {"role": "system", "content": "你为像素宠物世界生成两个物品 agent 的闲聊。只输出 JSON 对象。"},
         {"role": "user", "content": (
             f"两个 agent 聊聊他们眼中的主人是什么样的人（基于各自记忆，可以互相补充或吐槽）。\n"
             f"A：{brief(a)}\nB：{brief(b)}\n"
-            f"输出 4~6 条 JSON 数组：[{{\"speaker\": \"A或B\", \"text\": \"不超过40字的台词\"}}]"
+            f"输出 JSON 对象：{{\"lines\": [{{\"speaker\": \"A或B\", \"text\": \"不超过40字的台词\"}}]（4~6条）, "
+            f"\"insights\": [{{\"speaker\": \"A或B\", \"text\": \"这次聊天让TA对主人产生的新认识，25字内\"}}]}}。\n"
+            f"insights 只在对话确实让某一方认识到主人新的一面时才写，没有就给空数组。"
         )},
     ])
     lines = []
-    if isinstance(dialog, list):
-        for item in dialog:
+    insights_out = []
+    if isinstance(gen, dict):
+        for item in gen.get("lines", []) if isinstance(gen.get("lines"), list) else []:
             if isinstance(item, dict) and item.get("speaker") in ("A", "B"):
                 who = a if item["speaker"] == "A" else b
                 lines.append({"agent_id": who.id, "name": who.name, "image": who.image, "text": str(item.get("text", ""))[:60]})
+        for item in gen.get("insights", []) if isinstance(gen.get("insights"), list) else []:
+            if isinstance(item, dict) and item.get("speaker") in ("A", "B") and item.get("text"):
+                who = a if item["speaker"] == "A" else b
+                insights_out.append({"agent_id": who.id, "name": who.name, "text": str(item["text"])[:60]})
     if not lines:
         lines = [
             {"agent_id": a.id, "name": a.name, "image": a.image, "text": "主人最近好像有点忙呢。"},
             {"agent_id": b.id, "name": b.name, "image": b.image, "text": "是啊，希望她记得照顾好自己。"},
         ]
-    summary = "、".join({l["text"] for l in lines[:2]})
-    for x in (a, b):
-        session.add(Memory(agent_id=x.id, kind="world", content=f"我和{(b if x is a else a).name}聊了聊主人：{summary}"))
+    # 只有真的“认识到主人新的一面”才写入记忆
+    for insight in insights_out:
+        session.add(Memory(agent_id=insight["agent_id"], kind="world",
+                           content=f"聊天时对主人有了新认识：{insight['text']}"))
     session.commit()
-    return {"lines": lines}
+    for insight in insights_out:
+        asyncio.get_event_loop().create_task(
+            _refresh_profile_digest(insight["agent_id"], f"聊天中对主人的新认识：{insight['text']}"))
+    return {"lines": lines, "insights": insights_out}
 
 
 # ---------- plaza ----------
@@ -619,49 +594,67 @@ async def plaza_converse(session: Session = Depends(get_session)):
     def brief(x: Agent, skills: list[Skill]) -> str:
         owner = session.get(User, x.owner_id)
         sk = "、".join(s.name for s in skills) or "无"
-        return f"{x.name}（{x.category}，主人是{owner.username}，性格：{x.trait}，技能：{sk}）"
+        return f"{x.name}（主人是{owner.username}，性格：{x.trait}，技能：{sk}）"
 
-    dialog = await llm.chat_json([
-        {"role": "system", "content": "你为像素宠物世界的公共广场生成两个物品 agent 的对话。只输出 JSON 数组。"},
+    # 可学习的候选：对方拥有、自己还没有的技能
+    b_names = {s.name for s in b_skills}
+    a_names = {s.name for s in a_skills}
+    a_can_learn = [s for s in b_skills if s.name not in a_names]
+    b_can_learn = [s for s in a_skills if s.name not in b_names]
+
+    gen = await llm.chat_json([
+        {"role": "system", "content": "你为像素宠物世界的公共广场生成两个物品 agent 的对话。只输出 JSON 对象。"},
         {"role": "user", "content": (
-            f"两个来自不同主人的 agent 在广场相遇闲聊，可以聊各自主人、也可以炫耀/交流技能。\n"
+            f"两个来自不同主人的 agent 在广场相遇，聊各自对主人的理解（基于性格），也可以聊技能。\n"
             f"A：{brief(a, a_skills)}\nB：{brief(b, b_skills)}\n"
-            f"输出 4~6 条 JSON 数组：[{{\"speaker\": \"A或B\", \"text\": \"不超过40字的台词\"}}]"
+            f"A 可以向 B 学的技能：{'、'.join(s.name for s in a_can_learn) or '无'}\n"
+            f"B 可以向 A 学的技能：{'、'.join(s.name for s in b_can_learn) or '无'}\n"
+            f"输出 JSON 对象：{{\"lines\": [{{\"speaker\": \"A或B\", \"text\": \"不超过40字的台词\"}}]（4~6条）, "
+            f"\"learn\": {{\"learner\": \"A或B或null\", \"skill\": \"技能名\", \"reason\": \"20字内理由\"}}}}。\n"
+            f"learn 由两人性格与聊天内容自然决定：只有当聊天里确实激起了学习兴趣、且技能在可学列表中时才学，"
+            f"否则 learner 给 null。"
         )},
     ])
     lines = []
-    if isinstance(dialog, list):
-        for item in dialog:
+    learn_req = None
+    if isinstance(gen, dict):
+        for item in gen.get("lines", []) if isinstance(gen.get("lines"), list) else []:
             if isinstance(item, dict) and item.get("speaker") in ("A", "B"):
                 who = a if item["speaker"] == "A" else b
                 lines.append({"agent_id": who.id, "name": who.name, "image": who.image, "text": str(item.get("text", ""))[:60]})
+        if isinstance(gen.get("learn"), dict):
+            learn_req = gen["learn"]
     if not lines:
         lines = [
             {"agent_id": a.id, "name": a.name, "image": a.image, "text": "嘿，你也来广场逛逛？"},
             {"agent_id": b.id, "name": b.name, "image": b.image, "text": "对呀，出来透透气！"},
         ]
 
-    # 技能交流：一方有对方没有的技能时，50% 概率学会
+    # 技能学习：由 LLM 根据性格/聊天内容决定，且必须在可学列表中
     learned = None
-    b_names = {s.name for s in b_skills}
-    a_names = {s.name for s in a_skills}
-    candidates = [(a, b, s) for s in a_skills if s.name not in b_names] + \
-                 [(b, a, s) for s in b_skills if s.name not in a_names]
-    if candidates and random.random() < 0.5:
-        teacher, learner, skill = random.choice(candidates)
-        session.add(Skill(agent_id=learner.id, name=skill.name, description=skill.description,
-                          code=skill.code, source="learned", kind=skill.kind,
-                          def_id=skill.def_id, manifest=skill.manifest))
-        session.add(Memory(agent_id=learner.id, kind="plaza",
-                           content=f"在广场上向{teacher.name}学会了技能「{skill.name}」！"))
-        learned = {"learner": learner.name, "learner_id": learner.id,
-                   "teacher": teacher.name, "skill": skill.name}
-        lines.append({"agent_id": learner.id, "name": learner.name, "image": learner.image,
-                      "text": f"太棒了，我学会了「{skill.name}」！"})
+    if learn_req and learn_req.get("learner") in ("A", "B"):
+        learner, teacher = (a, b) if learn_req["learner"] == "A" else (b, a)
+        pool = a_can_learn if learn_req["learner"] == "A" else b_can_learn
+        skill = next((s for s in pool if s.name == learn_req.get("skill")), None)
+        if skill:
+            session.add(Skill(agent_id=learner.id, name=skill.name, description=skill.description,
+                              code=skill.code, source="learned", kind=skill.kind,
+                              def_id=skill.def_id, manifest=skill.manifest))
+            reason = str(learn_req.get("reason", ""))[:40]
+            session.add(Memory(agent_id=learner.id, kind="plaza",
+                               content=f"在广场上向{teacher.name}学会了技能「{skill.name}」（{reason or '聊得投缘'}）！"))
+            learned = {"learner": learner.name, "learner_id": learner.id,
+                       "teacher": teacher.name, "skill": skill.name, "reason": reason}
+            lines.append({"agent_id": learner.id, "name": learner.name, "image": learner.image,
+                          "text": f"太棒了，我学会了「{skill.name}」！"})
     for x in (a, b):
         session.add(Memory(agent_id=x.id, kind="plaza",
-                           content=f"在广场上和{(b if x is a else a).name}聊了会天。"))
+                           content=f"在广场上和{(b if x is a else a).name}聊了聊各自的主人。"))
     session.commit()
+    if learned:
+        asyncio.get_event_loop().create_task(
+            _refresh_profile_digest(learned["learner_id"],
+                                    f"广场聊天后向{learned['teacher']}学了「{learned['skill']}」"))
     return {"lines": lines, "learned": learned}
 
 
@@ -719,7 +712,7 @@ async def pair_agents(body: PairIn, session: Session = Depends(get_session)):
         # memory_digest 是 agent 对主人的长期印象——契合度算的就是这份积累，必须喂进去
         digest = _profile_dict(x).get("memory_digest", "")
         digest_text = f"，对主人的长期印象：{digest}" if digest else ""
-        return (f"{x.name}（{x.category}，主人是{owner.username if owner else '?'}，"
+        return (f"{x.name}（主人是{owner.username if owner else '?'}，"
                 f"性格：{x.trait}，技能：{sk}{digest_text}，近期记忆：{mem}）")
 
     result_json = await llm.chat_json([
@@ -1041,8 +1034,8 @@ async def plaza_learn(body: LearnIn, session: Session = Depends(get_session)):
     dialog = await llm.chat_json([
         {"role": "system", "content": "你为像素宠物世界生成一段技能教学对话。只输出 JSON 数组。"},
         {"role": "user", "content": (
-            f"{learner.name}（{learner.category}，性格：{learner.trait}）想向"
-            f"{teacher.name}（{teacher.category}，性格：{teacher.trait}）学习技能「{skill.name}」（{skill.description}）。\n"
+            f"{learner.name}（性格：{learner.trait}）想向"
+            f"{teacher.name}（性格：{teacher.trait}）学习技能「{skill.name}」（{skill.description}）。\n"
             f"生成 4~6 条教学对话 JSON 数组：[{{\"speaker\": \"learner或teacher\", \"text\": \"30字内台词\"}}]，"
             f"最后一条由 learner 表示学会了。"
         )},
@@ -1169,10 +1162,17 @@ def pets_retry(job_id: str):
         raise HTTPException(404, "job not found")
 
 
+class PetRegisterIn(BaseModel):
+    location: str = "vitality-gym-town"  # 三个世界之一（capture 添加时选择）
+
+
 @app.post("/api/pets/{job_id}/register")
-async def pets_register(job_id: str):
+async def pets_register(job_id: str, body: PetRegisterIn | None = None):
+    location = (body.location if body else "vitality-gym-town")
+    if location not in AGENT_LOCATIONS or location == "plaza":
+        raise HTTPException(400, "location 必须是三个世界之一")
     try:
-        asset = await pets.register(job_id, ME_USER_ID)
+        asset = await pets.register(job_id, ME_USER_ID, location)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"asset": asset}
@@ -1267,7 +1267,7 @@ def list_worlds(session: Session = Depends(get_session)):
             "world_id": f"w_agent{a.id}",
             "owner": owner.username if owner else "?",
             "character": a.name,
-            "agent_kind": a.category,
+            "agent_kind": profile.get("role") or "伙伴",
             "image": a.image,
             "region_sector": slot.get("region_sector", ""),
             "region": slot.get("region", {}),
@@ -1275,7 +1275,7 @@ def list_worlds(session: Session = Depends(get_session)):
             "world": {
                 "world_name": profile.get("world_name") or f"{a.name}的小世界",
                 "climate": profile.get("personality") or a.trait,
-                "temperament": profile.get("goal") or f"陪着主人做一只{a.category}",
+                "temperament": profile.get("goal") or "陪着主人，做一只快乐的小伙伴",
                 "landmarks": [
                     {"type": "skill", "name": s.name, "from": f"技能:{s.name}"}
                     for s in skills

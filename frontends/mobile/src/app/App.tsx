@@ -1608,6 +1608,264 @@ function SectionLabel({ text }: { text: string }) {
   );
 }
 
+type ManifestInput = { key: string; label: string; type: string; required?: boolean; options?: string[]; placeholder?: string };
+
+function parseSkillManifest(raw: string): { inputs: ManifestInput[]; cta: string } {
+  try {
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      inputs: Array.isArray(parsed.inputs) ? parsed.inputs.filter((input: ManifestInput) => input?.key) : [],
+      cta: typeof parsed.cta === "string" && parsed.cta ? parsed.cta : "使用技能",
+    };
+  } catch {
+    return { inputs: [], cta: "使用技能" };
+  }
+}
+
+/** 点击场景/广场里的 agent 弹出的档案卡：简介 + 最近记忆 + 可点击使用的技能。 */
+function AgentProfileSheet({ agentId, onClose, onChanged }: { agentId: number; onClose: () => void; onChanged?: () => void }) {
+  const [detail, setDetail] = useState<BackendAgentDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [dispatching, setDispatching] = useState(false);
+  const [activeSkillId, setActiveSkillId] = useState<number | null>(null);
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [invoking, setInvoking] = useState(false);
+  const [invokeOutput, setInvokeOutput] = useState<string | null>(null);
+  const [invokeError, setInvokeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setDetail(null);
+    setActiveSkillId(null);
+    setInvokeOutput(null);
+    setInvokeError(null);
+    backendApi.agent(agentId)
+      .then(row => { if (active) { setDetail(row); setError(null); } })
+      .catch(caught => { if (active) setError(caught instanceof Error ? caught.message : "加载失败"); });
+    return () => { active = false; };
+  }, [agentId]);
+
+  const activeSkill = detail?.skills.find(skill => skill.id === activeSkillId) ?? null;
+  const manifest = activeSkill ? parseSkillManifest(activeSkill.manifest) : null;
+  const color = detail ? dbAgentColor(detail) : "#7A7468";
+  const digest = (() => {
+    try {
+      return detail?.profile ? (JSON.parse(detail.profile).memory_digest as string | undefined) ?? "" : "";
+    } catch {
+      return "";
+    }
+  })();
+
+  const openSkill = (skillId: number) => {
+    setActiveSkillId(current => current === skillId ? null : skillId);
+    setInputValues({});
+    setInvokeOutput(null);
+    setInvokeError(null);
+  };
+
+  // 派去广场 / 召回原世界（只对自己的 agent 开放）
+  const toggleDispatch = async () => {
+    if (!detail || dispatching) return;
+    setDispatching(true);
+    try {
+      const updated = await backendApi.dispatch(detail.id, detail.location === "plaza" ? "home" : "plaza");
+      setDetail(current => current ? { ...current, location: updated.location } : current);
+      onChanged?.();
+    } catch {
+      // 保持原状即可
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  const runSkill = async () => {
+    if (!detail || !activeSkill || invoking) return;
+    setInvoking(true);
+    setInvokeOutput(null);
+    setInvokeError(null);
+    try {
+      const result = await backendApi.invokeSkill(detail.id, activeSkill.id, inputValues);
+      setInvokeOutput(result.output);
+    } catch (caught) {
+      setInvokeError(caught instanceof Error ? caught.message : "技能执行失败");
+    } finally {
+      setInvoking(false);
+    }
+  };
+
+  return (
+    <div
+      style={{ position: "absolute", inset: 0, zIndex: 90, background: "rgba(28,25,17,.4)", display: "flex", alignItems: "flex-end" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        className="w-full rounded-t-3xl p-4 flex flex-col gap-2.5"
+        style={{ background: "#FAF6EF", maxHeight: "78%", overflowY: "auto", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif", color: "#1C1911" }}
+        onClick={event => event.stopPropagation()}
+      >
+        {error && <p style={{ color: "#B5482F", fontSize: "var(--ui-font-caption)" }}>无法加载档案:{error}</p>}
+        {!detail && !error && <p style={{ color: "#8E867A", fontSize: "var(--ui-font-caption)" }}>档案加载中…</p>}
+        {detail && (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
+                style={{ background: `${color}14`, border: `1.5px solid ${color}35` }}>
+                <DbAgentAvatar agent={detail} size={46}/>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-heading)", fontWeight: 700 }}>{detail.name}</p>
+                <p style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)", marginTop: 2 }}>
+                  @{detail.owner_id === ME_USER_ID ? "我" : detail.owner_name} · {AGENT_LOCATION_LABEL[detail.location]} · 心情 {detail.mood}
+                </p>
+              </div>
+              <button type="button" onClick={onClose} aria-label="关闭档案"
+                style={{ border: 0, background: "transparent", color: "#8E867A", cursor: "pointer" }}>
+                <X size={16}/>
+              </button>
+            </div>
+
+            <p style={{ color: "#6F685D", fontSize: "var(--ui-font-caption)", lineHeight: 1.6 }}>{detail.trait}</p>
+
+            {detail.owner_id === ME_USER_ID && (
+              <button
+                type="button"
+                onClick={toggleDispatch}
+                disabled={dispatching}
+                className="rounded-xl flex items-center justify-center gap-1.5"
+                style={{
+                  height: 34,
+                  border: 0,
+                  background: detail.location === "plaza" ? "#6B9E7A" : "#4A7FA5",
+                  color: "#FAF6EF",
+                  fontSize: "var(--ui-font-caption)",
+                  opacity: dispatching ? .6 : 1,
+                }}
+              >
+                {dispatching ? <Loader2 size={11} className="animate-spin"/> : <MapPin size={11}/>}
+                {dispatching
+                  ? "移动中…"
+                  : detail.location === "plaza"
+                    ? "召唤回家"
+                    : "派去广场"}
+              </button>
+            )}
+            {digest && (
+              <p className="rounded-xl px-2.5 py-2" style={{ background: `${color}0E`, color: "#6F685D", fontSize: "var(--ui-font-micro)", lineHeight: 1.6 }}>
+                💭 {digest}
+              </p>
+            )}
+
+            <div>
+              <p style={{ color, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>SKILLS · 点击使用</p>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {detail.skills.map(skill => {
+                  const runnable = Boolean(skill.def_id);
+                  const active = skill.id === activeSkillId;
+                  return (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      onClick={() => runnable && openSkill(skill.id)}
+                      title={runnable ? skill.description : `${skill.description}（示范技能，暂无可执行实现）`}
+                      className="rounded-full px-2.5 py-1.5"
+                      style={{
+                        color: active ? "#FAF6EF" : color,
+                        background: active ? color : `${color}12`,
+                        border: `1px solid ${color}40`,
+                        cursor: runnable ? "pointer" : "default",
+                        opacity: runnable ? 1 : .55,
+                        fontSize: "var(--ui-font-micro)",
+                      }}
+                    >
+                      {skill.name}{runnable ? "" : " ·装饰"}
+                    </button>
+                  );
+                })}
+                {detail.skills.length === 0 && (
+                  <span style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)" }}>暂无技能</span>
+                )}
+              </div>
+            </div>
+
+            {activeSkill && manifest && (
+              <div className="rounded-2xl p-3 flex flex-col gap-2"
+                style={{ background: "#F0EBE2", border: `1px solid ${color}30` }}>
+                <p style={{ fontSize: "var(--ui-font-caption)" }}>{activeSkill.name} · {activeSkill.description}</p>
+                {manifest.inputs.map(input => (
+                  <label key={input.key} className="flex flex-col gap-1">
+                    <span style={{ color: "#7A7468", fontSize: "var(--ui-font-micro)" }}>
+                      {input.label}{input.required ? " *" : ""}
+                    </span>
+                    {input.type === "select" && input.options?.length ? (
+                      <select
+                        value={inputValues[input.key] ?? ""}
+                        onChange={event => setInputValues(current => ({ ...current, [input.key]: event.target.value }))}
+                        className="rounded-lg px-2 py-1.5"
+                        style={{ background: "#FAF6EF", border: "1px solid rgba(28,25,17,.14)", fontFamily: "inherit", fontSize: "var(--ui-font-caption)" }}
+                      >
+                        <option value="">请选择…</option>
+                        {input.options.map(option => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={inputValues[input.key] ?? ""}
+                        placeholder={input.placeholder ?? ""}
+                        onChange={event => setInputValues(current => ({ ...current, [input.key]: event.target.value }))}
+                        className="rounded-lg px-2 py-1.5"
+                        style={{ background: "#FAF6EF", border: "1px solid rgba(28,25,17,.14)", fontFamily: "inherit", fontSize: "var(--ui-font-caption)" }}
+                      />
+                    )}
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  onClick={runSkill}
+                  disabled={invoking || manifest.inputs.some(input => input.required && !(inputValues[input.key] ?? "").trim())}
+                  className="rounded-xl flex items-center justify-center gap-1.5"
+                  style={{ height: 32, border: 0, background: "#1C1911", color: "#FAF6EF", fontSize: "var(--ui-font-caption)", opacity: invoking ? .6 : 1 }}
+                >
+                  {invoking ? <Loader2 size={11} className="animate-spin"/> : <Zap size={11}/>}
+                  {invoking ? "执行中…" : manifest.cta}
+                </button>
+                {invokeError && <p style={{ color: "#B5482F", fontSize: "var(--ui-font-micro)" }}>{invokeError}</p>}
+                {invokeOutput && (
+                  <div className="rounded-xl px-2.5 py-2 flex flex-col gap-2" style={{ background: "#FAF6EF", border: "1px solid rgba(28,25,17,.1)", fontSize: "var(--ui-font-micro)", lineHeight: 1.65, color: "#4A453D", maxHeight: 260, overflowY: "auto" }}>
+                    {invokeOutput.split(/(!\[[^\]]*\]\([^)]+\))/g).map((part, index) => {
+                      const imageMatch = part.match(/^!\[[^\]]*\]\(([^)]+)\)$/);
+                      if (imageMatch) {
+                        return <img key={index} src={resolveApiAssetUrl(imageMatch[1])} alt="技能生成图"
+                          style={{ width: "100%", borderRadius: 10 }}/>;
+                      }
+                      return part.trim() ? <span key={index} style={{ whiteSpace: "pre-wrap" }}>{part}</span> : null;
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div>
+              <p style={{ color, fontSize: "var(--ui-font-micro)", letterSpacing: 1 }}>最近记忆</p>
+              <div className="flex flex-col gap-1 mt-1.5">
+                {detail.memories.slice(0, 5).map(memory => (
+                  <p key={memory.id} style={{ color: "#6F685D", fontSize: "var(--ui-font-micro)", lineHeight: 1.55 }}>
+                    · {memory.content}
+                  </p>
+                ))}
+                {detail.memories.length === 0 && (
+                  <p style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)" }}>还没有记忆</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
 /** 前端三个固定世界 ↔ 后端 Agent.location 的对应关系。 */
 const THEMED_WORLD_LOCATION: Record<ThemedWorldKey, AgentLocation> = {
   fitness: "vitality-gym-town",
@@ -1620,7 +1878,7 @@ function dbAgentResident(agent: BackendAgent): ThemedWorldResident {
   return {
     id: `db-${agent.id}`,
     name: agent.name,
-    role: agent.category,
+    role: agent.trait.slice(0, 10) || "居民",
     color: dbAgentColor(agent),
     art: <DbAgentAvatar agent={agent} size={58}/>,
   };
@@ -2036,16 +2294,21 @@ function ExtractScreen({
   const [mode, setMode] = useState<"erase" | "restore">("erase");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
-  const addToAgents = () => {
+  const [worldChoice, setWorldChoice] = useState<AgentLocation>("vitality-gym-town");
+  // my agent 一定在我的某个世界里：添加时必选世界，register 直接写入后端 DB
+  const addToAgents = async () => {
     if (!pet || adding) return;
     setAdding(true);
     setAddError(null);
-    onRegistered(pet);
-    if (onDone) {
-      onDone(pet);
-      return;
+    try {
+      const registered = await petApi.register(pet.id, worldChoice);
+      const merged = { ...pet, agentId: registered.agentId, registeredAt: registered.registeredAt };
+      onRegistered(merged);
+      if (onDone) onDone(merged);
+    } catch (caught) {
+      setAddError(caught instanceof Error ? caught.message : "添加失败，请重试");
+      setAdding(false);
     }
-    navigate("agentGallery");
   };
   return (
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: "#F5F0E8", fontFamily: "Press Start 2P,monospace" }}>
@@ -2096,6 +2359,33 @@ function ExtractScreen({
           <span style={{ color: "#E8634A" }}>真实透明 PNG</span>
         </div>
       )}
+
+      {/* 选择加入哪个世界（三选一） */}
+      <div className="px-5 mt-3">
+        <SectionLabel text="添加到我的哪个世界"/>
+        <div className="flex gap-2">
+          {([
+            ["vitality-gym-town", THEMED_WORLDS.fitness.accent],
+            ["learning-commons", THEMED_WORLDS.learning.accent],
+            ["maker-harbor", THEMED_WORLDS.maker.accent],
+          ] as const).map(([location, accent]) => (
+            <button key={location} onClick={() => setWorldChoice(location)}
+              className="flex-1 py-2.5 rounded-xl"
+              style={{
+                background: worldChoice === location ? `${accent}18` : "#EAE5DA",
+                border: `1.5px solid ${worldChoice === location ? accent : "rgba(28,25,17,0.1)"}`,
+                color: worldChoice === location ? accent : "#7A7468",
+                fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif",
+                fontSize: "var(--ui-font-body)",
+              }}>
+              {AGENT_LOCATION_LABEL[location]}
+            </button>
+          ))}
+        </div>
+        {addError && (
+          <p style={{ color: "#B5482F", fontSize: "var(--ui-font-caption)", marginTop: 6 }}>{addError}</p>
+        )}
+      </div>
 
       {/* Tools */}
       <div className="px-5 mt-3">
@@ -2443,7 +2733,7 @@ function BringToLifeScreen({ navigate, pet }: { navigate: (s: Screen) => void; p
 }
 
 // 6. AGENT IDENTITY
-function AgentIdentityScreen({ navigate, profile, draft, onChange, editing, onCancel, onRestore, archiveTabs }: {
+function AgentIdentityScreen({ navigate, profile, draft, onChange, editing, onCancel, onRestore, onDone, archiveTabs }: {
   navigate: (s: Screen) => void;
   profile: AgentProfile;
   draft: AgentEditorDraft;
@@ -2451,6 +2741,7 @@ function AgentIdentityScreen({ navigate, profile, draft, onChange, editing, onCa
   editing: boolean;
   onCancel: () => void;
   onRestore: () => void;
+  onDone: () => void;
   archiveTabs?: React.ReactNode;
 }) {
   const accent = profile.color;
@@ -2470,7 +2761,7 @@ function AgentIdentityScreen({ navigate, profile, draft, onChange, editing, onCa
       <div className="flex items-center justify-between px-5 py-2">
         <button onClick={editing ? onCancel : () => navigate("bringToLife")} style={{ color: "#7A7468" }}><ChevronLeft size={20}/></button>
         <p style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-page-title)", fontWeight: 700 }}>Agent Identity</p>
-        <button onClick={() => navigate("motionPreview")} style={{ color: accent, fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif", fontSize: "var(--ui-font-label)", fontWeight: 700 }}>下一步 →</button>
+        <button onClick={onDone} style={{ color: accent, fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif", fontSize: "var(--ui-font-label)", fontWeight: 700 }}>保存</button>
       </div>
       {archiveTabs}
 
@@ -2585,11 +2876,11 @@ function AgentIdentityScreen({ navigate, profile, draft, onChange, editing, onCa
       </div>
 
       <div className="px-5 mt-4 mb-4">
-        <button onClick={() => navigate("motionPreview")}
+        <button onClick={onDone}
           className="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2"
           style={{ background: "#1C1911", color: "#FAF6EF" }}>
-          <Play size={16}/>
-          <span style={{ fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif", fontSize: "var(--ui-font-section)", fontWeight: 700 }}>预览动作</span>
+          <Check size={16}/>
+          <span style={{ fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif", fontSize: "var(--ui-font-section)", fontWeight: 700 }}>保存修改</span>
         </button>
       </div>
     </div>
@@ -3941,12 +4232,14 @@ function ThemedWorldHostScreen({
   navigate,
   sceneControl,
   myAgents,
+  onAgentsChanged,
   onBack,
 }: {
   worldKey: ThemedWorldKey;
   navigate: (screen: Screen) => void;
   sceneControl: React.ReactNode;
   myAgents: BackendAgent[];
+  onAgentsChanged?: () => void;
   onBack?: () => void;
 }) {
   const [showBuildPalette, setShowBuildPalette] = useState(false);
@@ -3954,25 +4247,29 @@ function ThemedWorldHostScreen({
   const placementId = useRef(0);
   // 个人世界：只有用户自己的、已加入世界的 agents（来自后端 DB）
   const residents = myWorldResidents(myAgents, worldKey);
-  // 场景对话：来自后端 /api/world/converse（两个在家 agent 聊主人），不足两人时无对话
-  const [converseDialogue, setConverseDialogue] = useState<TopicLine[]>([]);
-  useEffect(() => {
-    let active = true;
-    setConverseDialogue([]);
-    if (residents.length < 2) return;
-    backendApi.worldConverse(THEMED_WORLD_LOCATION[worldKey]).then(result => {
-      if (!active) return;
-      const lines = result.lines
-        .filter(line => residents.some(resident => resident.id === `db-${line.agent_id}`))
-        .map(line => ({ speakerId: `db-${line.agent_id}`, topic: "聊聊主人", text: line.text }));
-      setConverseDialogue(lines);
-    }).catch(() => {});
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [worldKey, myAgents]);
+  // 场景不再自动闲聊：对谈只由“让居民聊聊主人”按钮触发（见 startWorldConverse）
   const config: ThemedWorldConfig = {
     ...THEMED_WORLDS[worldKey],
-    dialogue: converseDialogue,
+    dialogue: [],
+  };
+  const [profileAgentId, setProfileAgentId] = useState<number | null>(null);
+
+  // 一键对谈：两位居民聊对主人的理解；聊出“新认识”时后端才写入 memory
+  const startWorldConverse = async () => {
+    const result = await backendApi.worldConverse(THEMED_WORLD_LOCATION[worldKey]);
+    const lines = result.lines.map(line => ({
+      residentId: `db-${line.agent_id}`,
+      name: line.name,
+      text: line.text,
+      label: "聊聊主人",
+    }));
+    const insights = (result.insights ?? []).map(insight => ({
+      residentId: `db-${insight.agent_id}`,
+      name: insight.name,
+      text: `（记下来了）${insight.text}`,
+      label: "对主人的新认识",
+    }));
+    return [...lines, ...insights];
   };
 
   // 日记/心情输入：路由给这个世界里的一位 agent，记入其 memory 并生成回复泡泡
@@ -4071,7 +4368,15 @@ function ThemedWorldHostScreen({
         onCapture={() => navigate("capture")}
         onBack={onBack ?? (() => navigate("worldDock"))}
         onSendDiary={sendDiary}
+        onConverse={residents.length >= 2 ? startWorldConverse : undefined}
+        onResidentOpen={residentId => {
+          if (residentId.startsWith("db-")) setProfileAgentId(Number(residentId.slice(3)));
+        }}
       />
+
+      {profileAgentId != null && (
+        <AgentProfileSheet agentId={profileAgentId} onClose={() => setProfileAgentId(null)} onChanged={onAgentsChanged}/>
+      )}
 
       <AnimatePresence>
         {showBuildPalette && (
@@ -4496,7 +4801,7 @@ function AgentGalleryScreen({ navigate, section, onSectionChange, dbAgents, onEd
                   </div>
                   <div className="p-2.5">
                     <p style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-heading)", fontWeight: 700, color: "#1C1911", lineHeight: 1.1 }}>{agent.name}</p>
-                    <p style={{ fontSize: "var(--ui-font-body)", color, fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>{agent.category}</p>
+                    <p className="truncate" style={{ fontSize: "var(--ui-font-body)", color, fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>{agent.trait || "新伙伴"}</p>
                     <p className="truncate mt-1" style={{ fontSize: "var(--ui-font-caption)", color: "#8E867A", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
                       {agent.trait}
                     </p>
@@ -4546,7 +4851,7 @@ function AgentGalleryScreen({ navigate, section, onSectionChange, dbAgents, onEd
                 </div>
                 <div className="p-2.5">
                   <p style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-heading)", fontWeight: 700, color: "#1C1911", lineHeight: 1.1 }}>{template.name}</p>
-                  <p style={{ fontSize: "var(--ui-font-body)", color: "#7A7468", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>{template.category} · {template.description}</p>
+                  <p style={{ fontSize: "var(--ui-font-body)", color: "#7A7468", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>{template.description}</p>
                   <p className="truncate mt-1" style={{ fontSize: "var(--ui-font-caption)", color: "#8E867A", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
                     {template.trait}
                   </p>
@@ -5455,7 +5760,7 @@ function AgentsDirectoryScreen({ sceneControl }: { sceneControl: React.ReactNode
                     )}
                   </div>
                   <p className="truncate" style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)", marginTop: 2 }}>
-                    @{agent.owner_name} · {agent.category} · {AGENT_LOCATION_LABEL[agent.location]}
+                    @{agent.owner_name} · {AGENT_LOCATION_LABEL[agent.location]}
                   </p>
                 </div>
                 <div className="text-right shrink-0">
@@ -6336,11 +6641,13 @@ function PlazaScreen({
   const [converseIndex, setConverseIndex] = useState(0);
   const [converseError, setConverseError] = useState<string | null>(null);
   const converseTimerRef = useRef<number | null>(null);
+  // 点击广场上的 agent → 弹出档案（简介 + 记忆 + 可用技能）
+  const [profileAgentId, setProfileAgentId] = useState<number | null>(null);
   // 广场地图成员 = 后端 DB 中 location=plaza 的 agents（与 agents 分页完全一致）
   const members: WebPlazaMember[] = dbPlazaAgents.map(agent => ({
     id: String(agent.id),
     name: agent.name,
-    origin: `@${agent.owner_id === ME_USER_ID ? "我" : agent.owner_name} · ${agent.category}`,
+    origin: `@${agent.owner_id === ME_USER_ID ? "我" : agent.owner_name}`,
     color: dbAgentColor(agent),
     art: <DbAgentAvatar agent={agent} size={56}/>,
   }));
@@ -6485,7 +6792,10 @@ function PlazaScreen({
   };
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "#F5F0E8", color: "#1C1911", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
+    <div className="relative flex flex-col h-full" style={{ background: "#F5F0E8", color: "#1C1911", fontFamily: "'Fusion Pixel 10px Monospaced SC',sans-serif" }}>
+      {profileAgentId != null && (
+        <AgentProfileSheet agentId={profileAgentId} onClose={() => setProfileAgentId(null)} onChanged={refreshPlazaData}/>
+      )}
       <div className="px-4 pt-9 pb-1 flex justify-end">{sceneControl}</div>
 
       <div className="px-4 pt-1 pb-2 flex items-end justify-between">
@@ -6572,10 +6882,7 @@ function PlazaScreen({
                 featuredHouses={featuredHouses}
                 focusMemberId={focusedPlazaAgentId}
                 focusRequest={plazaFocusRequest}
-                onOpenAgent={agentId => {
-                  setSelectedDbAgentId(Number(agentId));
-                  setPlazaTab("agents");
-                }}
+                onOpenAgent={agentId => setProfileAgentId(Number(agentId))}
                 conversePair={conversing ? conversePair : null}
                 converseLine={conversing && activeConverseLine ? {
                   memberId: String(activeConverseLine.agent_id),
@@ -6647,7 +6954,7 @@ function PlazaScreen({
                       <div className="h-1 mt-[-3px] mx-auto rounded-full" style={{ width: 28, background: "rgba(28,25,17,.1)" }}/>
                       <p style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-section)", fontWeight: 700, marginTop: 6 }}>{agent.name}</p>
                       <p className="truncate" style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)" }}>
-                        @{agent.owner_id === ME_USER_ID ? "我" : agent.owner_name} · {agent.category}
+                        @{agent.owner_id === ME_USER_ID ? "我" : agent.owner_name}
                       </p>
                       <div className="mt-2">
                         {agentSkills.slice(0, 1).map(skill => (
@@ -6680,7 +6987,7 @@ function PlazaScreen({
                     <div>
                       <p style={{ fontFamily: "Caveat,cursive", fontSize: "var(--ui-font-heading)", fontWeight: 700 }}>{selectedDbAgent.name} 的档案</p>
                       <p style={{ color: "#8E867A", fontSize: "var(--ui-font-micro)", marginTop: 2 }}>
-                        主人：{selectedDbAgent.owner_name} · {selectedDbAgent.category} · 心情 {selectedDbAgent.mood}
+                        主人：{selectedDbAgent.owner_name} · 心情 {selectedDbAgent.mood}
                       </p>
                     </div>
                     <Share2 size={13} color={dbAgentColor(selectedDbAgent)}/>
@@ -7265,7 +7572,7 @@ export default function App() {
   const dbAgentProfile = (agent: BackendAgent): AgentProfile => ({
     id: `db-${agent.id}`,
     name: agent.name,
-    role: agent.category,
+    role: agent.trait.slice(0, 10) || "居民",
     world: AGENT_LOCATION_LABEL[agent.location],
     memories: 0,
     color: dbAgentColor(agent),
@@ -7292,10 +7599,25 @@ export default function App() {
     refreshMyAgents();
   };
 
-  const registerCapturedPet = (asset: PetAsset) => {
+  const placementFlowRef = useRef(false);
+
+  const registerCapturedPet = async (asset: PetAsset) => {
     setLatestCapturedPet(asset);
     setCapturedPets(current => [asset, ...current.filter(item => item.id !== asset.id)]);
     refreshMyAgents();
+    // capture 添加后：直接进入原“预览动作 → 放入世界”流程（archive 里只保留编辑资讯）
+    if (!asset.agentId) {
+      navigate("agentGallery");
+      return;
+    }
+    try {
+      const agent = await backendApi.agent(asset.agentId);
+      placementFlowRef.current = true;
+      openDbAgentEditor(agent);
+      setDetailScreen("motionPreview");
+    } catch {
+      navigate("agentGallery");
+    }
   };
 
   useEffect(() => {
@@ -7337,6 +7659,7 @@ export default function App() {
   };
 
   const cancelAgentEditor = () => {
+    placementFlowRef.current = false;
     setEditingAgentId(null);
     setEditingDbAgent(null);
     setBottomTab("gallery");
@@ -7370,9 +7693,19 @@ export default function App() {
     setDetailScreen(s);
   };
 
+  const WORLD_SCREEN_BY_LOCATION: Record<AgentLocation, Screen> = {
+    "vitality-gym-town": "everydayTown",
+    "learning-commons": "stardomDistrict",
+    "maker-harbor": "futureColony",
+    "plaza": "worldDock",
+  };
+
   const finishAgentEditor = () => {
+    // capture 放置流程结束后，直接跳到该 agent 所在的世界
+    const placedLocation = placementFlowRef.current && editingDbAgent ? editingDbAgent.location : null;
+    placementFlowRef.current = false;
     if (editingDbAgent) {
-      // identity 编辑完成 → 写回后端 DB 并标记加入世界
+      // 编辑完成 → 写回后端 DB
       backendApi.patchAgent(editingDbAgent.id, {
         name: editorDraft.name || editingDbAgent.name,
         trait: editorDraft.personality || editingDbAgent.trait,
@@ -7383,6 +7716,10 @@ export default function App() {
       setAgentDrafts(current => ({ ...current, [editingAgentId]: { ...editorDraft } }));
       setEditingAgentId(null);
       setEditingDbAgent(null);
+      if (placedLocation) {
+        navigate(WORLD_SCREEN_BY_LOCATION[placedLocation]);
+        return;
+      }
       setBottomTab("gallery");
       setGallerySub("agents");
       setDetailScreen(null);
@@ -7482,13 +7819,13 @@ export default function App() {
                 />
               )}
               {homeView === "scene" && homeSub === "everyday" && (
-                <ThemedWorldHostScreen worldKey="fitness" navigate={navigate} sceneControl={sceneControl} myAgents={dbMyAgents}/>
+                <ThemedWorldHostScreen worldKey="fitness" navigate={navigate} sceneControl={sceneControl} myAgents={dbMyAgents} onAgentsChanged={refreshMyAgents}/>
               )}
               {homeView === "scene" && homeSub === "stardom" && (
-                <ThemedWorldHostScreen worldKey="learning" navigate={navigate} sceneControl={sceneControl} myAgents={dbMyAgents}/>
+                <ThemedWorldHostScreen worldKey="learning" navigate={navigate} sceneControl={sceneControl} myAgents={dbMyAgents} onAgentsChanged={refreshMyAgents}/>
               )}
               {homeView === "scene" && homeSub === "future" && (
-                <ThemedWorldHostScreen worldKey="maker" navigate={navigate} sceneControl={sceneControl} myAgents={dbMyAgents}/>
+                <ThemedWorldHostScreen worldKey="maker" navigate={navigate} sceneControl={sceneControl} myAgents={dbMyAgents} onAgentsChanged={refreshMyAgents}/>
               )}
             </div>
           </div>
@@ -7549,6 +7886,7 @@ export default function App() {
                   editing={editingExistingAgent}
                   onCancel={cancelAgentEditor}
                   onRestore={restoreAgentEditor}
+                  onDone={finishAgentEditor}
                 />
               )}
               {gallerySub === "chain" && <AgentChainScreen archiveTabs={archiveTabs}/>}

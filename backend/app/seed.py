@@ -1,10 +1,32 @@
 import json
+import random
 
 from sqlmodel import Session, select
 
 from .db import engine
-from .models import Agent, AgentTemplate, Memory, Skill, User
+from .models import Agent, AgentTemplate, Skill, User
 from .skills_runtime import load_defs
+
+# 默认技能：所有 agent 出生即拥有
+DEFAULT_SKILL_DEF_IDS = ("heytea-poster", "vedic-astro")
+
+# 图鉴模板：sprite 来自 frontends/mobile/src/assets/world/pet-agents/sprites，
+# 已复制到 backend/uploads/pets/tpl-{key}/final.png
+DEFAULT_TEMPLATES = [
+    ("dachshund", "豆豆", "热情黏人的腊肠犬，最爱陪主人散步，尾巴摇个不停", "元气满满的腊肠犬伙伴"),
+    ("siamese", "雪糕", "优雅傲娇的暹罗猫，嘴上嫌弃却总睡在主人枕边", "高冷又贴心的暹罗猫伙伴"),
+    ("cat", "咪咪", "好奇贪玩的小猫，对纸箱和毛线球毫无抵抗力", "机灵活泼的小猫伙伴"),
+    ("rabbit", "团子", "温柔胆小的兔子，开心时会原地蹦一个小跳", "软乎乎的兔子伙伴"),
+    ("hamster", "麻薯", "囤货狂魔小仓鼠，腮帮子里永远藏着小零食", "圆滚滚的仓鼠伙伴"),
+    ("bird", "啾啾", "话痨小鸟，学舌一流，最爱清晨给主人报时", "叽叽喳喳的小鸟伙伴"),
+    ("tortoise", "石头", "慢性子乌龟，做事不急不躁，是大家的定心丸", "沉稳可靠的乌龟伙伴"),
+]
+
+SEED_LOCATIONS = [
+    "vitality-gym-town", "vitality-gym-town",
+    "learning-commons", "learning-commons",
+    "maker-harbor", "plaza", "plaza",
+]
 
 
 def _default_skill(agent_id: int, def_id: str) -> Skill:
@@ -29,30 +51,20 @@ def sync_default_skills() -> None:
         session.commit()
 
 
-DEFAULT_TEMPLATES = [
-    ("小汪", "狗", "热情黏人，最爱陪主人散步，尾巴摇个不停", "元气满满的狗狗伙伴"),
-    ("咪咪", "猫", "高冷但偷偷关心主人，喜欢晒太阳打盹", "傲娇的猫咪伙伴"),
-    ("小册", "书本", "文静博学，喜欢收集阅读心得，偶尔掉书袋", "爱思考的书本伙伴"),
-    ("汩汩", "水瓶", "操心体质，时刻盯着主人的喝水量", "贴心的水瓶伙伴"),
-    ("铁力", "哑铃", "肌肉笨蛋，满脑子训练计划，嗓门很大", "运动担当的哑铃伙伴"),
-    ("咔嚓", "相机", "观察力惊人，把看到的一切都拍下来当谈资", "记录生活的相机伙伴"),
-    ("绿绿", "植物", "安静治愈，慢慢生长，也提醒主人慢下来", "治愈系的小盆栽"),
-    ("嗡嗡", "耳机", "音乐发烧友，随时给主人的心情配 BGM", "懂气氛的耳机伙伴"),
-]
-
-
 def seed_templates() -> None:
     """图鉴模板目录：无主人、无记忆，仅供复制。幂等。"""
     with Session(engine) as session:
         if session.exec(select(AgentTemplate)).first():
             return
-        for name, category, trait, description in DEFAULT_TEMPLATES:
-            session.add(AgentTemplate(name=name, category=category,
-                                      trait=trait, description=description))
+        for key, name, trait, description in DEFAULT_TEMPLATES:
+            session.add(AgentTemplate(name=name, trait=trait, description=description,
+                                      image=f"/api/pets/tpl-{key}/files/final"))
         session.commit()
 
 
 def seed() -> None:
+    """空库初始化：3 个用户 + 每个图鉴模板各出场一次的 agent（owner 随机分配），
+    每个 agent 拥有全部默认技能（喜茶风海报 + 吠陀占星）。"""
     with Session(engine) as session:
         if session.exec(select(User)).first():
             return
@@ -64,40 +76,16 @@ def seed() -> None:
         session.commit()
         for u in (me, u2, u3):
             session.refresh(u)
+        user_ids = [me.id, u2.id, u3.id]
 
-        dog = Agent(owner_id=me.id, name="豆豆", category="狗",
-                    trait="热情黏人，最爱听主人讲生活琐事，记性出奇地好", mood=90)
-        bottle = Agent(owner_id=me.id, name="咕噜", category="水瓶",
-                       trait="操心体质，每天盯着主人喝水量，说话咕噜咕噜的", mood=75)
-        book = Agent(owner_id=me.id, name="墨墨", category="书本",
-                     trait="文静博学，喜欢收集主人的阅读心得，偶尔掉书袋", mood=70)
-        dumbbell = Agent(owner_id=u2.id, name="铁蛋", category="哑铃",
-                         trait="肌肉笨蛋，满脑子训练计划，嗓门很大", mood=85, location="plaza")
-        cam = Agent(owner_id=u2.id, name="小眼", category="相机",
-                    trait="观察力惊人，把看到的一切都拍下来当谈资", mood=80, location="plaza")
-        pen = Agent(owner_id=u3.id, name="尖尖", category="钢笔",
-                    trait="文艺挑剔，写得一手好字，喜欢点评别人的措辞", mood=78, location="plaza")
-        session.add_all([dog, bottle, book, dumbbell, cam, pen])
-        session.commit()
-        for a in (dog, bottle, book, dumbbell, cam, pen):
-            session.refresh(a)
-
-        session.add_all([
-            Memory(agent_id=dog.id, kind="diary", content="主人今天加班到很晚，说好累但还是摸了摸我的头。"),
-            Memory(agent_id=bottle.id, kind="diary", content="主人今天只喝了三杯水，我提醒了她两次。"),
-            Memory(agent_id=book.id, kind="diary", content="主人读完了《小王子》第21章，说驯养就是建立联系。"),
-            Memory(agent_id=dumbbell.id, kind="camera", content="主人今天练了卧推 60kg x 5，姿势比上周标准。"),
-            Skill(agent_id=dog.id, name="安慰模式", description="察觉主人低落时说暖心话",
-                  code="def comfort(mood):\n    return '摸摸头，一切都会好的' if mood < 50 else '一起去散步吧！'", source="user"),
-            Skill(agent_id=bottle.id, name="喝水提醒", description="统计每日饮水量并提醒",
-                  code="def remind(cups):\n    return f'今天喝了{cups}杯，目标8杯！'", source="user"),
-            Skill(agent_id=dumbbell.id, name="训练计划", description="根据录像优化训练动作",
-                  code="def plan(day):\n    return ['卧推', '深蹲', '硬拉'][day % 3]", source="user"),
-            Skill(agent_id=cam.id, name="精彩回放", description="剪辑一天的高光时刻",
-                  code="def replay(clips):\n    return sorted(clips, key=lambda c: c.score)[-3:]", source="user"),
-            Skill(agent_id=pen.id, name="金句摘抄", description="把好句子誊写收藏",
-                  code="def collect(sentence):\n    return f'『{sentence}』—— 已收藏'", source="user"),
-            _default_skill(cam.id, "heytea-poster"),
-            _default_skill(book.id, "vedic-astro"),
-        ])
+        for index, (key, name, trait, _description) in enumerate(DEFAULT_TEMPLATES):
+            agent = Agent(owner_id=random.choice(user_ids), name=name, trait=trait,
+                          mood=random.randint(72, 95),
+                          location=SEED_LOCATIONS[index % len(SEED_LOCATIONS)],
+                          image=f"/api/pets/tpl-{key}/files/final")
+            session.add(agent)
+            session.commit()
+            session.refresh(agent)
+            for def_id in DEFAULT_SKILL_DEF_IDS:
+                session.add(_default_skill(agent.id, def_id))
         session.commit()

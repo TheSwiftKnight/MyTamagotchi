@@ -76,11 +76,11 @@ def agent_world_view(a: Agent, session: Session) -> dict:
     return {
         "id": f"agent-{a.id}",
         "name": a.name,
-        "role": profile.get("role") or a.category,
+        "role": profile.get("role") or "伙伴",
         "world": WORLD_NAME.get(a.location, a.location),
         "color": "#E8634A",
         "location": random.Random(a.id).choice(LOCATIONS.get(a.location, ["小广场"])),
-        "goal": profile.get("goal") or f"陪伴主人，做一只快乐的{a.category}",
+        "goal": profile.get("goal") or "陪伴主人，做一只快乐的小伙伴",
         "mood": _mood_word(a.mood),
         "energy": a.mood,
         "personalityVersion": 1,
@@ -202,7 +202,7 @@ async def run_bond_activity(session: Session, bond_id: int | None = None) -> dic
     etype, edesc = random.choice(list(BOND_EVENT_TYPES.items()))
     host = random.choice([a, b])                       # 串门去谁家 / 活动发生在谁的世界
     location = random.choice(LOCATIONS.get(host.location, ["小广场"]))
-    p_data = [(x.id, x.name, x.category, x.trait, sk)
+    p_data = [(x.id, x.name, x.trait, sk)
               for x, sk in ((a, a_skills), (b, b_skills))]
     bond_ctx = (f"两人通过「镜头前合影配对」结为伙伴，已相遇{bond.pair_count}次，"
                 f"灵魂契合度{bond.score}（{bond.reason}），他们的共同话题：{bond.topic or '未知'}")
@@ -211,8 +211,8 @@ async def run_bond_activity(session: Session, bond_id: int | None = None) -> dic
 
     # ── PHASE 2：慢 LLM，不碰 DB ──
     brief = "\n".join(
-        f"agent-{pid}: {pname}（{pcat}，性格：{ptrait}，技能：{'、'.join(psk) or '无'}）"
-        for pid, pname, pcat, ptrait, psk in p_data
+        f"agent-{pid}: {pname}（性格：{ptrait}，技能：{'、'.join(psk) or '无'}）"
+        for pid, pname, ptrait, psk in p_data
     )
     gen = await llm.chat_json([
         {"role": "system", "content": "你是像素小世界的叙事引擎，为一对有羁绊的物品 agent 生成一次专属活动。只输出 JSON。"},
@@ -297,10 +297,10 @@ async def _generate_event(session: Session, meta: WorldMeta | None = None) -> No
     location = random.choice(LOCATIONS.get(world_key, ["小广场"]))
     etype = random.choice(EVENT_TYPES)
     # rollback 后 ORM 对象会过期，先把要用的字段抓成纯数据
-    p_data = [(a.id, a.name, a.category, a.trait, a.mood) for a in participants]
+    p_data = [(a.id, a.name, a.trait, a.mood) for a in participants]
     brief = "\n".join(
-        f"agent-{pid}: {pname}（{pcat}，性格：{ptrait}，心情：{_mood_word(pmood)}）"
-        for pid, pname, pcat, ptrait, pmood in p_data
+        f"agent-{pid}: {pname}（性格：{ptrait}，心情：{_mood_word(pmood)}）"
+        for pid, pname, ptrait, pmood in p_data
     )
     session.rollback()   # ★ 释放读快照——下面调 LLM 期间不持任何锁
 

@@ -84,9 +84,11 @@ export const petApi = {
     }));
   },
 
-  async register(id: string): Promise<PetAsset> {
+  async register(id: string, location: string): Promise<PetAsset> {
     const payload = await readJson<{ asset: PetAsset }>(await fetchApi(`${API_BASE}/pets/${id}/register`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ location }),
     }));
     return absoluteAssetUrls(payload.asset);
   },
@@ -120,11 +122,8 @@ export async function waitForPet(submitted: PetJob, onProgress: (job: PetJob) =>
     const job = await petApi.getJob(submitted.id, submitted.accessToken);
     onProgress(job);
     if (job.status === "ready" && job.asset) {
-      // 自动建档：生成人设并写入后端 DB（inventory 日常精灵）。失败时仍返回本机资产。
-      const registered = await petApi.register(job.id).catch(() => null);
-      const localAsset = await petApi.localize(registered ?? job.asset);
-      await petApi.release(job.id, job.accessToken);
-      return localAsset;
+      // 不在这里建档：用户会在 Extract 页选择加入哪个世界后再 register（写入后端 DB）。
+      return petApi.localize(job.asset);
     }
     if (job.status === "failed") throw new Error(job.error || "萌化 Agent 生成失败");
     await new Promise(resolve => window.setTimeout(resolve, 750));

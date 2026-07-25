@@ -22,7 +22,6 @@ class Agent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     owner_id: int = Field(foreign_key="user.id")
     name: str
-    category: str
     image: str = ""  # agent 外表：capture 管线生成的角色图 URL（如 /api/pets/{id}/files/final）
     trait: str = ""
     mood: int = 80  # 0-100
@@ -39,7 +38,6 @@ class AgentTemplate(SQLModel, table=True):
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    category: str
     image: str = ""  # 线条风模板图 URL（由 capture 管线生成）
     trait: str = ""
     description: str = ""

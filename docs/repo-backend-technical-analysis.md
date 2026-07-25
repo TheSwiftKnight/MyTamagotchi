@@ -32,7 +32,7 @@ flowchart LR
     API --> DB["SQLite<br/>tamagotchi.db"]
     API --> OR["OpenRouter<br/>文字／視覺／圖片模型"]
 
-    API --> Tick["45 秒自動 Tick"]
+    API --> Tick["150 秒自動 Tick"]
     Tick --> Event["生成世界事件與 Agent 對話"]
     Event --> DB
     Event --> UI
@@ -69,8 +69,11 @@ repo 內有三種不同意義的「聊天」，必須分開理解。
 
 流程如下：
 
+個人世界（三個 world 的場景）已**不再自動輪播閒聊**：泡泡只在「讓居民聊聊主人」按鈕、
+日記回覆或世界事件時出現；輪播間隔也從 4.2 秒放慢到 9 秒。自動世界事件流程：
+
 1. FastAPI 啟動後建立背景迴圈。
-2. 每 45 秒執行一次 world tick。
+2. 每 150 秒執行一次 world tick（原 45 秒，已調低頻率避免畫面太吵）。
 3. 隨機選擇世界、地點、事件類型與 2–3 位 Agent。
 4. 把 Agent 的名字、物品類型、性格、心情送給 LLM。
 5. LLM 回傳事件標題、摘要、3–5 句對話及後續影響。
@@ -109,7 +112,6 @@ agent-{id}: {name}（{category}，性格：{trait}，心情：{mood}）
 }
 ```
 
-目前這個 Prompt 沒有把 Agent 的歷史記憶送入 LLM，因此世界事件對話具備 Agent 人設，但還不算真正基於長期記憶的決策或推理。
 
 ### 2.2 使用的模型
 
@@ -270,8 +272,10 @@ Content-Type: application/json
 5. 組出 persona system prompt。
 6. 將使用者輸入作為 user message。
 7. 呼叫 OpenRouter。
-8. 把「主人對我說了什麼」存入 Memory。
+8. 把「主人對我說了什麼」和「我回覆了什麼」都存入 Memory（完整 conversation history）。
 9. 提升 Agent mood 8 點。
+10. 背景任務用 LLM 把這次互動融進 `profile.memory_digest`（agent 對主人的長期印象，
+    會被注入之後的 persona prompt）。diary、廣場學習、對談新認識也會觸發同樣的更新。
 
 #### Persona Prompt
 
@@ -279,11 +283,12 @@ Content-Type: application/json
 你是一个像素风电子宠物世界里的物品 agent。
 名字：{agent.name}；类型：{agent.category}；性格：{agent.trait}。
 你拥有的技能：{skill names}。
+你对主人和世界的长期印象：{profile.memory_digest}
 你的记忆：
 - {最近八条记忆}
 
-始终用简体中文、以第一人称、符合性格地说话，回复要口语化且不超过60字，
-可以带一点符合物品身份的小动作描写（用括号）。
+始终用简体中文、以第一人称、符合性格地说话，回复要口语化且不超过40字，
+可以带0~2個符合物品身份的小动作描写（用括号）。
 ```
 
 Persona prompt 還會帶上 `profile.memory_digest`（Agent 對主人的滾動長期印象）。
@@ -306,7 +311,7 @@ file=<audio blob，上限 10MB>
 板子側另有 `tools/voice_bridge/`（Mac 側中轉，走 PCM，回覆文字用 `X-Reply`
 響應頭帶回螢幕）。
 
-### 2.4 Node 版聊天
+### 2.4 Node 版聊天--> **忽略**node版
 
 Node 世界引擎另有：
 
@@ -335,6 +340,31 @@ gpt-4.1-mini
 
 Demo Day 不應把 Node 版與 FastAPI 版混著講。
 --> **忽略**node版
+
+### 2.5 一鍵對談（世界 / 廣場）
+
+兩個入口都是**手動按鈕觸發**，不再自動播放：
+
+- 個人世界「讓居民聊聊主人」→ `POST /api/world/converse {user_id, location}`：
+  兩位本世界居民聊對主人的理解。LLM 除對話外還輸出 `insights`（這次聊天讓某方
+  認識到主人新的一面）；**只有出現 insight 才寫入該 agent 的 Memory**（kind=world），
+  並觸發 profile.memory_digest 更新。前端把台詞逐句播成場景泡泡，insight 以
+  「對主人的新認識」泡泡收尾。
+- 廣場「讓廣場上的 agents 聊聊」→ `POST /api/plaza/converse`：
+  兩位廣場 agent 聊各自對主人的理解。學習技能不再是 50% 亂數：prompt 附上
+  「A/B 可學的技能清單」，由 LLM 根據**性格與聊天內容**決定 `learn`（可為 null），
+  後端驗證技能確實在可學清單中才複製 Skill、寫入 Memory 並回傳 `learned`。
+
+### 2.6 Agent 檔案卡與 Skill 使用 UI
+
+在自己的世界與廣場點擊任何 agent，會彈出檔案卡（`AgentProfileSheet`）：
+
+- 資料來源：`GET /api/agents/{id}`（含 memories 與 skills）。
+- 顯示：頭像、主人、位置、心情、性格、`profile.memory_digest`、最近 5 筆記憶。
+- 技能是**可點擊的按鈕**：點擊後根據 skill manifest 的 `inputs` schema 動態生成表單
+  （`text` → 輸入框、`select` → 下拉），按鈕文字取 manifest 的 `cta`，
+  送出呼叫 `POST /api/agents/{id}/skills/{skill_id}/invoke`，輸出（markdown）直接顯示。
+  `def_id` 為空的裝飾技能顯示為不可執行。
 
 ---
 
@@ -526,7 +556,7 @@ Node 版限制：
 
 - 世界具有 `tick / day / minute / era`。
 - 每個 tick 推進 30 個世界分鐘。
-- 現實每 45 秒自動執行一次 tick。
+- 現實每 150 秒自動執行一次 tick。
 - 根據 tick 進入不同紀元。
 - 隨機選擇參與 Agent 與事件類型。
 - LLM 生成結構化世界事件。

@@ -60,8 +60,8 @@ def _migrate() -> None:
     }
     dropped_cols = {
         # emoji → image；world+in_world+sprite_url 合并进 location/image（见下方数据迁移）
-        "agent": ["emoji", "world", "in_world", "sprite_url"],
-        "agenttemplate": ["emoji"],
+        "agent": ["emoji", "world", "in_world", "sprite_url", "category"],
+        "agenttemplate": ["emoji", "category"],
     }
     with engine.connect() as conn:
         conn.execute(text("PRAGMA journal_mode=WAL"))

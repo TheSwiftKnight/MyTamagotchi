@@ -2066,6 +2066,31 @@
   animation: pulse 1.8s ease-in-out infinite;
 }
 
+.themed-world-converse {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 18;
+  display: flex;
+  height: 27px;
+  padding: 0 9px;
+  align-items: center;
+  gap: 5px;
+  color: #faf6ef;
+  background: rgba(28, 25, 17, .88);
+  border: 0;
+  border-radius: 9px;
+  box-shadow: 0 3px 12px rgba(28, 25, 17, .18);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 7px;
+}
+
+.themed-world-converse:disabled {
+  cursor: default;
+  opacity: .6;
+}
+
 .themed-world-chain-skill {
   position: absolute;
   right: 10px;
