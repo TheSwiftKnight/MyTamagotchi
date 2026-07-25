@@ -79,22 +79,37 @@ class Camera:
                 available = ", ".join(f"[{i}] {n}" for i, n in list_avfoundation_devices())
                 raise RuntimeError(f"找不到相机「{name}」。当前设备：{available or '无'}")
         self.index = index
-        self.w, self.h, self.fps = pick_mode(index)
-        print(f"[camera] 设备支持模式中选用 {self.w}x{self.h}@{self.fps:g}fps", flush=True)
+        picked = pick_mode(index)
+        print(f"[camera] 设备支持模式中选用 {picked[0]}x{picked[1]}@{picked[2]:g}fps", flush=True)
         self._stderr = tempfile.NamedTemporaryFile(prefix="qr_pair_ffmpeg_", suffix=".log")
-        self.proc = self._open(self.w, self.h, self.fps)
-        # 读第一帧验证取流成功（权限/占用/参数错误会立刻暴露）
-        first = self.proc.stdout.read(self.w * self.h * 3)
-        if first is None or len(first) < self.w * self.h * 3:
-            # 部分设备（MacBook 内置相机等）只接受 1080p@30fps + uyvy422 组合，回退再试
-            print(f"[camera] {self.w}x{self.h}@{self.fps:g} 取流失败，回退 1920x1080@30fps", flush=True)
+        # 依次尝试：探测模式 → 1080p30 → 720p30。
+        # 注意「假活」陷阱：某些模式（如这台 MacBook 的 1080p）ffmpeg 能开流，
+        # 但设备实际不出新帧，靠 dup 补齐——管道里全是同一张图。
+        # 所以验证不只看第一帧能不能读到，还要看连续 3 帧是否有变化。
+        for w, h, fps in (picked, (1920, 1080, 30.0), (1280, 720, 30.0)):
+            self.w, self.h, self.fps = w, h, fps
+            self.proc = self._open(w, h, fps)
+            try:
+                frames = [self._read_one() for _ in range(3)]
+            except RuntimeError:
+                frames = None
+            if frames and len({f.tobytes() for f in frames}) > 1:
+                if (w, h, fps) != picked:
+                    print(f"[camera] {picked[0]}x{picked[1]}@{picked[2]:g} 取流失败/帧冻结，回退 {w}x{h}@{fps:g}fps", flush=True)
+                break
+            print(f"[camera] {w}x{h}@{fps:g} 帧冻结（ dup 补帧），换下一档…", flush=True)
             self.proc.kill()
-            self.w, self.h, self.fps = 1920, 1080, 30.0
-            self.proc = self._open(self.w, self.h, self.fps)
-            first = self.proc.stdout.read(self.w * self.h * 3)
-            if first is None or len(first) < self.w * self.h * 3:
-                raise RuntimeError(f"相机「{name}」(index={self.index}) 取流失败：{self._err_tail()}")
+        else:
+            raise RuntimeError(f"相机「{name}」(index={self.index}) 取流失败：{self._err_tail()}")
         self._frame_size = self.w * self.h * 3
+        self._last_key: bytes | None = None
+        self._dup_count = 0
+
+    def _read_one(self) -> "np.ndarray":
+        buf = self.proc.stdout.read(self.w * self.h * 3)
+        if buf is None or len(buf) < self.w * self.h * 3:
+            raise RuntimeError("read short")
+        return np.frombuffer(buf, np.uint8).reshape(self.h, self.w, 3).copy()
 
     def _open(self, w: int, h: int, fps: float) -> subprocess.Popen:
         return subprocess.Popen(
@@ -124,7 +139,15 @@ class Camera:
         buf = self.proc.stdout.read(self._frame_size)
         if buf is None or len(buf) < self._frame_size:
             raise RuntimeError(f"ffmpeg 取流中断：{self._err_tail()}")
-        return np.frombuffer(buf, np.uint8).reshape(self.h, self.w, 3).copy()
+        frame = np.frombuffer(buf, np.uint8).reshape(self.h, self.w, 3).copy()
+        # 假活看门狗：设备冻结时 ffmpeg 用 dup 补帧，管道里有数据但全是同一张图
+        # （真实场景有传感器噪声，不可能连续 45 帧逐字节相同）
+        key = frame.tobytes()
+        self._dup_count = self._dup_count + 1 if key == self._last_key else 0
+        self._last_key = key
+        if self._dup_count > 45:
+            raise RuntimeError("相机帧冻结（ffmpeg dup 补帧），需要重开/降档")
+        return frame
 
     def release(self):
         if self.proc.poll() is None:
