@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ForkWorld 硬件配置报告 · Tuya T5AI-Board</title>
+<style>
+  :root{
+    --bg:#f4f1ea; --card:#ffffff; --ink:#1b1b1f; --sub:#5c5c66;
+    --line:#e6e2d8; --faint:#f0ece2; --a1:#E8634A; --a2:#4A7FA5; --a3:#6B9E7A;
+    --gold:#C79A2E; --chip:#eef3f7; --code:#f6f4ee; --shadow:0 1px 3px rgba(0,0,0,.06),0 6px 24px rgba(0,0,0,.05);
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#14151a; --card:#1c1e25; --ink:#e9e7e1; --sub:#a0a0ab; --line:#2c2e37;
+      --faint:#22242c; --chip:#232833; --code:#1a1c22; --shadow:0 1px 3px rgba(0,0,0,.3),0 8px 30px rgba(0,0,0,.35);}
+  }
+  :root[data-theme="dark"]{ --bg:#14151a; --card:#1c1e25; --ink:#e9e7e1; --sub:#a0a0ab; --line:#2c2e37;
+    --faint:#22242c; --chip:#232833; --code:#1a1c22; --shadow:0 1px 3px rgba(0,0,0,.3),0 8px 30px rgba(0,0,0,.35);}
+  :root[data-theme="light"]{ --bg:#f4f1ea; --card:#fff; --ink:#1b1b1f; --sub:#5c5c66; --line:#e6e2d8;
+    --faint:#f0ece2; --chip:#eef3f7; --code:#f6f4ee; --shadow:0 1px 3px rgba(0,0,0,.06),0 6px 24px rgba(0,0,0,.05);}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.65;
+    -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:940px;margin:0 auto;padding:0 20px 80px;}
+
+  /* Hero */
+  header.hero{padding:52px 0 34px;border-bottom:1px solid var(--line);margin-bottom:34px;}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:3px;color:var(--a1);text-transform:uppercase;}
+  h1{font-size:34px;line-height:1.2;margin:10px 0 6px;font-weight:800;letter-spacing:-.5px;}
+  .lede{color:var(--sub);font-size:16px;max-width:640px;}
+  .meta{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;}
+  .pill{font-family:var(--mono);font-size:12px;background:var(--chip);color:var(--sub);
+    border:1px solid var(--line);border-radius:999px;padding:4px 12px;}
+  .pill b{color:var(--ink);}
+
+  h2{font-size:21px;margin:44px 0 4px;font-weight:750;display:flex;align-items:center;gap:10px;}
+  h2 .n{font-family:var(--mono);font-size:13px;color:#fff;background:var(--a1);border-radius:8px;
+    width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;flex:none;}
+  h2.blue .n{background:var(--a2)} h2.green .n{background:var(--a3)} h2.gold .n{background:var(--gold)}
+  .sec-sub{color:var(--sub);font-size:14px;margin:2px 0 18px;}
+
+  /* Spec grid */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:8px 0;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);}
+  .card .lab{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--sub);text-transform:uppercase;}
+  .card .val{font-size:19px;font-weight:750;margin-top:3px;}
+  .card .note{font-size:13px;color:var(--sub);margin-top:4px;}
+  .card .ic{font-size:20px;float:right;opacity:.85}
+
+  /* Table */
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;box-shadow:var(--shadow);font-size:14.5px;}
+  th,td{text-align:left;padding:11px 16px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{background:var(--faint);font-weight:700;font-size:13px;color:var(--sub);}
+  tr:last-child td{border-bottom:none;}
+  td.k{font-weight:650;white-space:nowrap;color:var(--ink);width:36%;}
+  code,.mono{font-family:var(--mono);font-size:.9em;background:var(--code);padding:1.5px 6px;border-radius:6px;border:1px solid var(--line);}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700;}
+  .ok{background:rgba(107,158,122,.15);color:#3f8a5c;} .wip{background:rgba(199,154,46,.18);color:#a97e17;}
+  :root[data-theme="dark"] .ok{color:#84d3a0} :root[data-theme="dark"] .wip{color:#e0b64a}
+  @media (prefers-color-scheme: dark){.ok{color:#84d3a0}.wip{color:#e0b64a}}
+
+  .callout{background:var(--faint);border-left:3px solid var(--a2);border-radius:10px;padding:12px 16px;
+    margin:14px 0;font-size:14px;color:var(--sub);}
+  .callout b{color:var(--ink)}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:640px){.split{grid-template-columns:1fr}}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto;
+    font-family:var(--mono);font-size:13px;line-height:1.7;margin:12px 0;}
+  .diagram{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow);
+    font-family:var(--mono);font-size:12.5px;line-height:1.7;overflow-x:auto;white-space:pre;color:var(--ink);}
+  footer{margin-top:60px;padding-top:22px;border-top:1px solid var(--line);color:var(--sub);font-size:13px;}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">Hardware Spec Sheet</div>
+    <h1>ForkWorld 板载硬件配置报告</h1>
+    <p class="lede">承载 ForkWorld「世界地图」板载原生前端的开发板硬件规格、接口定义与技术架构全解。</p>
+    <div class="meta">
+      <span class="pill">开发板 <b>Tuya T5AI-Board</b></span>
+      <span class="pill">丝印 <b>T5-BOARD_V102</b></span>
+      <span class="pill">主控 <b>Beken BK7258</b></span>
+      <span class="pill">日期 <b>2026-07-24</b></span>
+    </div>
+  </header>
+
+  <!-- 1. 核心规格 -->
+  <h2><span class="n">1</span>核心规格一览</h2>
+  <p class="sec-sub">一眼看清这块板子的关键硬件参数。</p>
+  <div class="grid">
+    <div class="card"><span class="ic">🧠</span><div class="lab">主控 SoC</div><div class="val">Beken BK7258</div><div class="note">双核 Arm Cortex-M33 · AIoT 芯片</div></div>
+    <div class="card"><span class="ic">🖥️</span><div class="lab">显示屏</div><div class="val">3.5″ ILI9488</div><div class="note">原生 320×480 · RGB565 · SPI</div></div>
+    <div class="card"><span class="ic">👆</span><div class="lab">触摸屏</div><div class="val">Goodix GT1151</div><div class="note">电容式 · 硬件支持 5 点多点</div></div>
+    <div class="card"><span class="ic">🔌</span><div class="lab">USB 接口</div><div class="val">CH342 双串口</div><div class="note">下载口 + 日志口 · VID/PID 1a86:55d2</div></div>
+    <div class="card"><span class="ic">💾</span><div class="lab">程序空间</div><div class="val">AP 3.8MB + CP 1MB</div><div class="note">双核分区 · app 运行于 AP 核</div></div>
+    <div class="card"><span class="ic">📡</span><div class="lab">无线</div><div class="val">Wi‑Fi 6 + BLE</div><div class="note">2.4GHz · 本项目未启用联网</div></div>
+    <div class="card"><span class="ic">💡</span><div class="lab">背光</div><div class="val">PWM 调光</div><div class="note">PWM7 通道</div></div>
+    <div class="card"><span class="ic">🎛️</span><div class="lab">硬件编解码</div><div class="val">JPEG / H.264</div><div class="note">硬件加速 · PSRAM 外扩</div></div>
+  </div>
+
+  <!-- 2. 主控芯片 -->
+  <h2 class="blue"><span class="n">2</span>主控芯片 · Beken BK7258</h2>
+  <p class="sec-sub">Beken 面向 AIoT 多媒体的 Wi‑Fi 6 / BLE SoC，双核异构架构。</p>
+  <table>
+    <tr><th>项目</th><th>规格 / 说明</th></tr>
+    <tr><td class="k">内核架构</td><td><b>双核 Arm Cortex‑M33</b> —— <b>AP 核</b>（应用主核，跑 LVGL + ForkWorld app）与 <b>CP 核</b>（协处理，负责显示/触摸等底层驱动）</td></tr>
+    <tr><td class="k">程序分区</td><td><code>primary_ap_app</code> = <b>3808 KB</b>（AP 核，本项目素材+代码约占 3629KB）<br><code>primary_cp_app</code> = <b>1088 KB</b>（CP 核）</td></tr>
+    <tr><td class="k">内存</td><td>片上 SRAM + 外扩 <b>PSRAM</b>（大位图/绘制缓冲驻留 PSRAM）</td></tr>
+    <tr><td class="k">无线连接</td><td>Wi‑Fi 6（2.4GHz）+ 低功耗蓝牙 BLE（SDK 具备，<b>本项目离线运行、未启用</b>）</td></tr>
+    <tr><td class="k">多媒体加速</td><td>硬件 <b>JPEG 编/解码</b>、硬件 <b>H.264 编码</b>、2D 图形 PPU（缩放/旋转/混合）、音频编解码</td></tr>
+    <tr><td class="k">主频</td><td>可配置，最高约 320 MHz</td></tr>
+  </table>
+  <div class="callout"><b>为什么是双核：</b>早期一度误判「只有 1MB 可用」（那是 CP 核的 <code>primary_cp_app</code>）。实际 app 跑在 <b>AP 核，有 3.8MB</b> 程序空间，素材预算才充裕 —— 这也是能把 1.5MB 大地图 + 角色 + 详情卡全部烘焙进固件的前提。</div>
+
+  <!-- 3. 显示 -->
+  <h2 class="green"><span class="n">3</span>显示子系统</h2>
+  <p class="sec-sub">物理竖屏，软件旋转成横屏使用。</p>
+  <div class="split">
+    <table>
+      <tr><th>显示参数</th><th>值</th></tr>
+      <tr><td class="k">驱动 IC</td><td>ILI9488</td></tr>
+      <tr><td class="k">尺寸</td><td>3.5 英寸</td></tr>
+      <tr><td class="k">原生分辨率</td><td>320 × 480（竖屏）</td></tr>
+      <tr><td class="k">呈现分辨率</td><td><b>480 × 320（横屏）</b></td></tr>
+      <tr><td class="k">像素格式</td><td>RGB565（16 位）</td></tr>
+      <tr><td class="k">接口</td><td>SPI（软件 SPI）</td></tr>
+      <tr><td class="k">旋转</td><td>顺时针 90°（<code>ROTATION_90</code>）</td></tr>
+    </table>
+    <table>
+      <tr><th>显示引脚 (GPIO)</th><th>脚位</th></tr>
+      <tr><td class="k">SPI CSX 片选</td><td><code>GPIO48</code></td></tr>
+      <tr><td class="k">SPI SDA 数据</td><td><code>GPIO50</code></td></tr>
+      <tr><td class="k">RST 复位</td><td><code>GPIO53</code></td></tr>
+      <tr><td class="k">背光类型</td><td>PWM 调光</td></tr>
+      <tr><td class="k">背光通道</td><td><code>PWM7</code></td></tr>
+      <tr><td class="k">配置项</td><td><code>LCD_35565</code></td></tr>
+    </table>
+  </div>
+  <div class="callout"><span class="dot" style="background:var(--a1)"></span><b>方向要点：</b>面板物理是 320×480 竖屏，通过 <code>BOARD_LCD_ROTATION = ROTATION_90</code> 让 LVGL 呈现为 480×320 横屏并顺时针旋转 90°。触摸坐标也要套同款变换 <code>sx = 480 − ny − 1；sy = nx</code> 才对得上。</div>
+
+  <!-- 4. 触摸 -->
+  <h2 class="gold"><span class="n">4</span>触摸子系统</h2>
+  <p class="sec-sub">硬件多点、软件栈默认单点，是本项目双指缩放的关键卡点。</p>
+  <table>
+    <tr><th>项目</th><th>规格 / 说明</th></tr>
+    <tr><td class="k">触摸 IC</td><td>Goodix <b>GT1151</b>（电容式）</td></tr>
+    <tr><td class="k">多点能力</td><td><b>硬件支持 5 点触摸</b>（状态寄存器 <code>0x814E</code>，点坐标 <code>0x814F</code> 起每点 8 字节）</td></tr>
+    <tr><td class="k">总线</td><td>I2C · 7 位地址 <code>0x14</code></td></tr>
+    <tr><td class="k">I2C 引脚</td><td>SCL <code>GPIO13</code> · SDA <code>GPIO15</code></td></tr>
+    <tr><td class="k">坐标空间</td><td>原生 320×480（需软件旋转到 480×320 屏幕坐标）</td></tr>
+    <tr><td class="k">软件栈现状</td><td>平台默认编译为<b>单点</b>（<code>TP_SUPPORT_MAX_NUM = 1</code>）→ LVGL 单点指针；多点需自读 <code>tdl_tp_dev_read()</code></td></tr>
+  </table>
+
+  <!-- 5. 供电与通信接口 -->
+  <h2><span class="n">5</span>供电 · 串口 · 烧录</h2>
+  <p class="sec-sub">板子通过一颗 CH342 提供双路 USB 串口。</p>
+  <table>
+    <tr><th>接口 / 节点</th><th>用途</th></tr>
+    <tr><td class="k">USB 转串口芯片</td><td>WCH <b>CH342</b>（双串口）· VID:PID <code>1a86:55d2</code></td></tr>
+    <tr><td class="k"><code>…usbmodem…641</code></td><td>接口 1 —— <b>下载 / 控制口</b>（DTR/RTS 接芯片复位脚，用于进下载模式）</td></tr>
+    <tr><td class="k"><code>…usbmodem…643</code></td><td>接口 3 —— <b>日志口 / 串口控制台</b>，波特率 <b>460800</b></td></tr>
+    <tr><td class="k">供电</td><td>USB Type‑C 供电</td></tr>
+    <tr><td class="k">烧录方式</td><td>纯软件进下载模式（DTR/RTS 脉冲），无需按板载按钮</td></tr>
+  </table>
+  <pre># 一条命令进下载模式并覆盖烧录（tyutool）
+tyutool reset -d t5ai -p /dev/cu.usbmodem…641          # t5ai 下载脉冲
+tyutool write -d t5   -p /dev/cu.usbmodem…641 -b 921600 -f 固件_QIO.bin</pre>
+  <div class="callout"><b>踩坑点：</b>复位类型必须是 <code>-d t5ai</code>（不是默认的 <code>bk7231n</code>），且要在 <b>641 口</b>操作；日志口 <b>643</b> 的波特率是 <b>460800</b>（不是常见的 115200）。</div>
+
+  <!-- 6. 架构框图 -->
+  <h2 class="blue"><span class="n">6</span>系统架构框图</h2>
+  <p class="sec-sub">双核分工 + 显示/触摸链路。</p>
+  <div class="diagram">┌──────────────────────── BK7258 双核 SoC ────────────────────────┐
+│                                                                 │
+│   AP 核 (primary_ap_app · 3808KB)     CP 核 (primary_cp_app · 1088KB) │
+│   ├─ LVGL v9 GUI 引擎                  ├─ 显示底层驱动           │
+│   ├─ ForkWorld app (状态机/相机)        └─ 触摸底层驱动           │
+│   └─ 烘焙素材 常量区                                              │
+│        地图1.5MB / 角色 / 气泡 / 详情卡                           │
+│                        │                        │               │
+└────────────────────────┼────────────────────────┼───────────────┘
+                         SPI                       I2C
+                          │                        │
+                 ┌────────▼────────┐      ┌────────▼────────┐
+                 │  ILI9488 3.5″    │      │  GT1151 触摸     │
+                 │  320×480 RGB565  │      │  5 点 · 0x14     │
+                 │  (旋转90°→480×320)│      │  SCL13 / SDA15  │
+                 └─────────────────┘      └─────────────────┘
+
+   USB ─ CH342 双串口 ─┬─ 641 口：下载/控制 (DTR/RTS→复位)
+                      └─ 643 口：日志控制台 @460800</div>
+
+  <!-- 7. 固件技术栈 -->
+  <h2 class="green"><span class="n">7</span>板载固件技术栈</h2>
+  <p class="sec-sub">这块硬件上跑的是什么、怎么跑的。</p>
+  <table>
+    <tr><th>层</th><th>技术选型</th></tr>
+    <tr><td class="k">SDK / 生态</td><td>TuyaOpen（涂鸦开源 IoT 框架）· TDD/TDL 设备驱动分层</td></tr>
+    <tr><td class="k">GUI 引擎</td><td>LVGL v9（原生渲染，非截图推流）</td></tr>
+    <tr><td class="k">渲染模型</td><td>一张 936×832 大位图靠 <code>lv_obj_set_pos</code> 平移做相机；角色/气泡/连线为叠加对象</td></tr>
+    <tr><td class="k">中文方案</td><td>电脑侧 PIL 把中文<b>烘焙成位图</b>（名牌/气泡/详情卡），免 CJK 字库</td></tr>
+    <tr><td class="k">资产管线</td><td>Python + PIL 离线合成 → C 常量数组编进固件；数据源与网页共用 <code>worlds.json</code></td></tr>
+    <tr><td class="k">动画</td><td>33ms（~30fps）状态机：自动巡航 ↔ 互访演出</td></tr>
+    <tr><td class="k">交互</td><td>单指点击（聚焦+详情卡）已通；双指缩放开发中</td></tr>
+  </table>
+
+  <!-- 8. 状态 -->
+  <h2 class="gold"><span class="n">8</span>当前功能状态</h2>
+  <p class="sec-sub">板子现在能做什么。</p>
+  <table>
+    <tr><th>功能</th><th>状态</th></tr>
+    <tr><td class="k">全局环形大地图 + 中心广场 + 道路</td><td><span class="tag ok">已完成</span></td></tr>
+    <tr><td class="k">6 世界自动巡航相机</td><td><span class="tag ok">已完成</span></td></tr>
+    <tr><td class="k">6 物品拟人角色走动</td><td><span class="tag ok">已完成</span></td></tr>
+    <tr><td class="k">互访演出 + 台词气泡 + 灵魂连线</td><td><span class="tag ok">已完成</span></td></tr>
+    <tr><td class="k">单指点击 → 世界详情卡</td><td><span class="tag ok">已完成</span></td></tr>
+    <tr><td class="k">屏幕方向（顺时针 90° 横屏）</td><td><span class="tag ok">已完成</span></td></tr>
+    <tr><td class="k">双指缩放 / 多点触摸</td><td><span class="tag wip">开发中 · 多点读取调试</span></td></tr>
+  </table>
+
+  <footer>
+    ForkWorld 硬件配置报告 · Tuya T5AI‑Board（BK7258）· 生成于 2026‑07‑24<br>
+    规格来源：板级配置头文件、SDK 分区表、串口枚举与实测。本报告为项目内部技术文档。
+  </footer>
+
+</div>
+</body>
+</html>

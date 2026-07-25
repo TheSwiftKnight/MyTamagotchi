@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<!--
+  世界互访 · 前端 Demo（AdventureX 黑客松 · 单文件零构建）
+  打开方式：双击本文件（需联网加载 Phaser / Easystar 两个 CDN 脚本，其余零依赖，美术全部由 Phaser Graphics 程序生成）。
+  四幕：① 建世界（H5 表单）→ ② 世界生成动画 → ③ 碰一碰互访演出（≤30s，画布角落计时器为证）→ ④ 游记卡片（先结论后正文）。
+  数据：全部为团队冻结 Schema 的 mock；真实接口 POST /profile、POST /bump、GET /visit/{id}、WS /ws/{user_id} 已在 JS 注释中占位。
+  技术：Phaser 3.80.1（渲染）+ Easystar.js 0.4.4（网格寻路）；竖屏 390×640，Scale.FIT 自适应；仅 DOM + Canvas，兼容微信 webview。
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>世界互访 · 前端 Demo</title>
+<style>
+:root{
+  --copper:#E8A25C; --cyan:#7EC8E3; --ink:#0B0F1E; --panel:#10162A;
+  --line:#263154; --text:#C7D2E8; --dim:#5E6B8C;
+  --serif:"Songti SC","STSong",Georgia,serif;
+  --mono:"SF Mono",Menlo,monospace;
+  --sans:-apple-system,"PingFang SC",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{
+  font-family:var(--sans); color:var(--text); background-color:#05070F;
+  /* 页面其余区域：深色星空填充 */
+  background-image:
+    radial-gradient(1px 1px at 24px 36px, rgba(255,255,255,.55) 50%, transparent 51%),
+    radial-gradient(1px 1px at 150px 90px, rgba(126,200,227,.45) 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 80px 170px, rgba(232,162,92,.35) 50%, transparent 51%),
+    radial-gradient(1px 1px at 210px 40px, rgba(255,255,255,.3) 50%, transparent 51%);
+  background-size:240px 240px, 300px 300px, 360px 360px, 420px 420px;
+}
+#app{max-width:420px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;}
+/* ===== 控制条 ===== */
+#bar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 8px;align-items:center;}
+#bar button{
+  font-family:var(--mono);font-size:11px;color:var(--text);
+  background:#141B31;border:1px solid var(--line);border-radius:8px;
+  padding:6px 9px;cursor:pointer;line-height:1;
+}
+#bar button.on{border-color:var(--copper);color:var(--copper);}
+#worldBtn{color:var(--cyan);}
+/* ===== 舞台（Phaser 挂载点）===== */
+#stage{position:relative;width:100%;aspect-ratio:390/640;border:1px solid #1B2440;border-radius:12px;overflow:hidden;touch-action:none;background:var(--ink);}
+#stage canvas{display:block;}
+/* ===== 第 1 幕 · 建世界 overlay ===== */
+#act1{position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;background:rgba(5,8,18,.8);transition:opacity .5s;}
+#act1.show{display:flex;}
+#act1.fade{opacity:0;}
+.card{width:84%;background:var(--panel);border:1px solid rgba(232,162,92,.28);border-radius:14px;padding:22px 18px;box-shadow:0 18px 50px rgba(0,0,0,.5);}
+.kicker{font-family:var(--mono);font-size:10px;letter-spacing:2px;color:var(--dim);}
+.card h1{font-family:var(--serif);font-size:24px;color:var(--copper);margin:6px 0 8px;font-weight:600;}
+.card p{font-size:12px;color:#9AA7C7;line-height:1.7;margin-bottom:14px;}
+#homeUrl{width:100%;font-family:var(--mono);font-size:12px;color:var(--text);background:#0B0F1E;border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:12px;outline:none;}
+#homeUrl:focus{border-color:var(--cyan);}
+.primary{width:100%;font-size:14px;font-weight:600;color:#0B0F1E;background:var(--copper);border:none;border-radius:9px;padding:11px;cursor:pointer;}
+.primary:disabled{opacity:.55;}
+#steps{list-style:none;margin-top:14px;}
+#steps li{font-family:var(--mono);font-size:12px;color:var(--dim);padding:4px 0;opacity:.35;transition:opacity .3s;}
+#steps li::before{content:'○ ';}
+#steps li.on{opacity:1;color:var(--copper);}
+#steps li.on::before{content:'● ';}
+/* ===== 第 4 幕 · 游记卡片（底部滑出，先结论后正文）===== */
+#act4{position:absolute;left:0;right:0;bottom:0;z-index:22;max-height:84%;overflow-y:auto;
+  background:linear-gradient(180deg,rgba(16,22,42,.97),rgba(10,14,28,.99));
+  border-top:1px solid rgba(232,162,92,.4);border-radius:16px 16px 0 0;padding:16px 16px 20px;
+  transform:translateY(103%);transition:transform .45s cubic-bezier(.22,.9,.3,1);}
+#act4.show{transform:translateY(0);}
+#closeCard{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--dim);font-size:14px;cursor:pointer;z-index:2;}
+.score-row{display:flex;gap:14px;align-items:center;}
+.ring-wrap{position:relative;width:74px;height:74px;flex:none;}
+.ring-wrap svg{position:absolute;inset:0;}
+.score-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:1px;font-family:var(--serif);color:var(--copper);}
+.score-num span{font-size:26px;font-weight:700;}
+.score-num i{font-style:normal;font-size:10px;color:var(--dim);margin-top:8px;}
+.score-side{flex:1;}
+.score-side .kicker{color:var(--copper);}
+#resLine{font-family:var(--serif);font-size:14px;line-height:1.65;color:var(--text);margin-top:6px;}
+.ghost{width:100%;margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--cyan);background:rgba(126,200,227,.07);border:1px solid rgba(126,200,227,.3);border-radius:9px;padding:9px;cursor:pointer;}
+#travelo{max-height:0;overflow:hidden;transition:max-height .4s ease;font-size:12.5px;line-height:1.9;color:#9AA7C7;}
+#travelo.open{max-height:220px;padding-top:10px;}
+.opener-block{margin-top:14px;background:rgba(126,200,227,.06);border-left:3px solid var(--cyan);border-radius:8px;padding:10px 12px;}
+.opener-block .kicker{color:var(--cyan);}
+#opener{font-family:var(--mono);font-size:12px;line-height:1.8;color:var(--text);margin-top:6px;}
+#opener::before{content:'「';color:var(--dim);}
+#opener::after{content:'」';color:var(--dim);}
+.m5note{margin-top:12px;font-family:var(--mono);font-size:10px;color:var(--dim);text-align:center;}
+/* ===== 呼吸光晕（第三高光软模拟：两台 M5Dial 同频呼吸）===== */
+#breathfx{position:fixed;inset:0;pointer-events:none;z-index:90;opacity:0;transition:opacity .6s;}
+body.breathing #breathfx{opacity:1;animation:breath 2.6s ease-in-out infinite;}
+@keyframes breath{
+  0%,100%{box-shadow:inset 0 0 24px rgba(232,162,92,.10),inset 0 0 70px rgba(232,162,92,.05);}
+  50%{box-shadow:inset 0 0 60px rgba(232,162,92,.5),inset 0 0 140px rgba(232,162,92,.2);}
+}
+@media (prefers-reduced-motion: reduce){
+  body.breathing #breathfx{animation:none;box-shadow:inset 0 0 0 2px rgba(232,162,92,.55);}
+}
+/* ===== 说明面板 ===== */
+#infoPanel{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;background:rgba(3,5,12,.86);}
+#infoPanel.show{display:flex;}
+.panel{position:relative;width:min(90vw,400px);max-height:82vh;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 18px;}
+.panel h2{font-family:var(--serif);font-size:18px;color:var(--copper);margin-bottom:12px;}
+.map{list-style:none;}
+.map li{font-size:12.5px;line-height:1.7;color:var(--text);padding:6px 0;border-bottom:1px dashed #1B2440;}
+.conclusion{font-size:13px;line-height:1.8;margin:12px 0;color:var(--copper);}
+.mocknote{font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.7;}
+#infoClose{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--dim);font-size:14px;cursor:pointer;}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- 常驻控制条 -->
+  <div id="bar">
+    <button data-act="1">① 建世界</button>
+    <button data-act="2">② 生成动画</button>
+    <button data-act="3" title="真实触发为 NFC 碰一碰 → POST /bump">③ 📡 碰一碰</button>
+    <button data-act="4">④ 游记卡片</button>
+    <button id="speedBtn" title="全局速度">1×</button>
+    <button id="worldBtn" title="切换演示世界">熬夜实验室 ⇄ 凌晨花房</button>
+    <button id="infoBtn" title="需求 → 演示映射">？</button>
+  </div>
+  <!-- 舞台：Phaser 画布 + 各幕 DOM overlay -->
+  <div id="stage">
+    <div id="act1">
+      <div class="card">
+        <div class="kicker">微信内 H5 · STEP 1</div>
+        <h1>创造你的世界</h1>
+        <p>粘贴你的个人主页，AI 读完后会浇筑一座只属于你的小世界。</p>
+        <input id="homeUrl" value="https://bonjour.bio/@someone" spellcheck="false" autocomplete="off">
+        <button id="genBtn" class="primary">生成我的世界</button>
+        <ul id="steps">
+          <li>解析主页</li>
+          <li>提取画像</li>
+          <li>浇筑世界</li>
+        </ul>
+      </div>
+    </div>
+    <div id="act4">
+      <button id="closeCard">✕</button>
+      <!-- 1. 先给结论：契合度 + 一句话共鸣 -->
+      <div class="score-row">
+        <div class="ring-wrap">
+          <svg viewBox="0 0 74 74" width="74" height="74">
+            <circle cx="37" cy="37" r="30" fill="none" stroke="#263154" stroke-width="6"/>
+            <circle id="ringFg" cx="37" cy="37" r="30" fill="none" stroke="#E8A25C" stroke-width="6" stroke-linecap="round" transform="rotate(-90 37 37)"/>
+          </svg>
+          <div class="score-num"><span id="scoreNum">0</span><i>分</i></div>
+        </div>
+        <div class="score-side">
+          <div class="kicker">灵魂契合度</div>
+          <p id="resLine"></p>
+        </div>
+      </div>
+      <!-- 2. 再给正文：可折叠游记 -->
+      <button id="expandBtn" class="ghost">展开游记 ▾</button>
+      <p id="travelo"></p>
+      <!-- 3. 值得聊的那件事（对话开场白样式） -->
+      <div class="opener-block">
+        <div class="kicker">值得聊的那件事</div>
+        <p id="opener"></p>
+      </div>
+      <p class="m5note">⚬ 此时两台 M5Dial 同频呼吸（LED #E8A25C · breath）</p>
+    </div>
+  </div>
+</div>
+<!-- 页面边缘呼吸光晕层 -->
+<div id="breathfx"></div>
+<!-- 说明面板 -->
+<div id="infoPanel">
+  <div class="panel">
+    <button id="infoClose">✕</button>
+    <h2>需求 → 演示映射</h2>
+    <ul class="map">
+      <li>建世界页（H5 微信内）→ 第 1 幕</li>
+      <li>世界渲染器（Phaser 3 + Tiled 思路 + Easystar 寻路）→ 画布本体</li>
+      <li>互访演出 ≤30s（第二高光）→ 第 3 幕（角落计时器为证）</li>
+      <li>游记卡片「先结论后正文」→ 第 4 幕</li>
+    </ul>
+    <p class="conclusion"><b>世界 UI 做到「模板地图 + 槽位地标 + 脚本化演出」的程度，不做自由建造。</b></p>
+    <p class="mocknote">全部数据为 mock，真实接口 POST /profile、POST /bump、GET /visit、WS 已在代码注释中占位。</p>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/easystarjs@0.4.4/bin/easystar-0.4.4.min.js"></script>
+<script>
+'use strict';
+/* global Phaser, EasyStar */
+
+// ============================================================================
+// Mock 数据层（Demo 不接后端；以下为团队冻结的 JSON Schema，字段结构不得改动）
+//
+// 真实接口契约（仅占位说明，Demo 中不发起任何请求）：
+//   POST /profile      第 1 幕「生成我的世界」触发：请求体 { homepage_url } → 返回 World JSON
+//   POST /bump         第 3 幕线下 NFC「碰一碰」触发：请求体 { my_id, peer_id } → 返回 { visit_id }
+//   GET  /visit/{id}   第 3 / 4 幕数据源：→ 返回 VisitResult JSON（气泡 / 游记 / 契合度 / 硬件反馈）
+//   WS   /ws/{user_id} 实时通道：互访进度、使者位置、双机呼吸灯指令推送
+// ============================================================================
+
+// 世界 A（默认演示世界）
+const WORLDS = {
+  A: {
+    "world_name": "熬夜实验室",
+    "climate": "常年凌晨三点，星光很好",
+    "temperament": "安静但门永远开着",
+    "landmarks": [
+      {"type":"lab","name":"通宵亮灯的实验室","from":"职业：嵌入式工程师","slot":0},
+      {"type":"shelf","name":"堆着47个烂尾项目的架子","from":"兴趣：side project","slot":1},
+      {"type":"statue","name":"第一块点亮的开发板纪念碑","from":"经历","slot":2}
+    ],
+    "residents":[{"name":"看门的猫","personality":"替主人挡掉无聊的访客"}]
+  },
+  // 世界 B（切换用对照世界）
+  B: {
+    "world_name": "凌晨花房",
+    "climate": "永远差一口气天亮",
+    "temperament": "热闹都藏在叶子里",
+    "landmarks": [
+      {"type":"greenhouse","name":"只开给失眠者的花房","from":"兴趣：植物","slot":0},
+      {"type":"album","name":"画了一半就停笔的画廊","from":"经历：美院肄业","slot":1},
+      {"type":"statue","name":"收留的第一只流浪猫铜像","from":"经历","slot":2}
+    ],
+    "residents":[{"name":"浇水的机器人","personality":"话少，记得每盆花的生日"}]
+  }
+};
+
+// 互访结果 VisitResult：第 3 幕气泡 + 第 4 幕游记卡片内容
+const VISIT = {
+  "bubbles":[
+    {"slot":0,"text":"这盏灯，和我一起熬过无数个夜"},
+    {"slot":1,"text":"烂尾不是失败，是没说再见的开始"},
+    {"slot":2,"text":"第一块板子点亮的瞬间，我懂"}
+  ],
+  "travelogue":"他的世界里有一座通宵亮灯的实验室，灯下有 47 个没做完的梦。看门的猫打量了我三秒，放我进去了——大概它也在我主人的花房里，闻到了同一种凌晨三点的味道。",
+  "resonance":{"score":87,"line":"你们的世界都把「未完成」放在最显眼的位置","opener":"聊聊你们各自烂尾最久的那个项目"},
+  "hardware_feedback":{"led_rgb":"#E8A25C","pattern":"breath","epoch_ms":0}
+};
+
+// ============================================================================
+// 全局状态
+// ============================================================================
+let SPEED = 1;          // 全局速度乘数（1× / 2×），作用于所有 tween / 计时时长
+let worldKey = 'A';     // 当前演示世界
+let currentAct = 0;     // 当前幕次
+let actToken = 0;       // 幕次令牌：每次切幕 +1，旧异步回调检测到不一致即自我丢弃（幂等关键）
+let scene = null;       // Phaser 场景引用
+const D = ms => ms / SPEED; // DOM 侧计时时长换算（Phaser 侧统一用 timeScale 缩放）
+
+// ============================================================================
+// 地图网格常量：tile 30px，13 列 × 19 行（390×570 地图区 + 70px 标题栏）
+// ============================================================================
+const T = 30, COLS = 13, ROWS = 19, MAP_Y = 70, W = 390, H = 640;
+const SLOT_CELL = [[3,4],[9,5],[6,10]];     // 地标槽位（硬编码，保证路径连通不互堵）
+const STOP_CELL = [[3,5],[9,6],[6,11]];     // 使者每站停留格（地标相邻可通行格）
+const ENTRY_CELL = [0,4], EXIT_CELL = [0,11]; // 使者入场 / 出场格（地图左边缘）
+const OWNER_CELL = [2,15], RES_CELL = [10,15]; // 主人使者 / 住民站位
+const cx = c => c * T + T / 2;              // 列 → 画布 x
+const cy = r => MAP_Y + r * T + T / 2;      // 行 → 画布 y
+
+// ============================================================================
+// DOM 引用
+// ============================================================================
+const $ = id => document.getElementById(id);
+const dom = {
+  act1: $('act1'), homeUrl: $('homeUrl'), genBtn: $('genBtn'),
+  steps: Array.from(document.querySelectorAll('#steps li')),
+  act4: $('act4'), closeCard: $('closeCard'), ringFg: $('ringFg'), scoreNum: $('scoreNum'),
+  resLine: $('resLine'), expandBtn: $('expandBtn'), travelo: $('travelo'), opener: $('opener'),
+  speedBtn: $('speedBtn'), worldBtn: $('worldBtn'),
+  infoPanel: $('infoPanel'), infoBtn: $('infoBtn'), infoClose: $('infoClose')
+};
+
+// ============================================================================
+// Phaser 场景（四幕的画布侧实现）
+// ============================================================================
+class MainScene extends Phaser.Scene {
+  constructor(){ super('main'); }
+
+  create(){
+    scene = this;
+    this.makeTextures();   // 程序生成全部美术纹理（禁止外部图片）
+    this.drawBackground(); // 空地：深色地面 + 极淡网格 + 稀疏星星
+
+    // ---- Easystar 寻路初始化：0 = 可通行，1 = 地标阻挡 ----
+    const grid = [];
+    for (let r = 0; r < ROWS; r++){ const row = []; for (let c = 0; c < COLS; c++) row.push(0); grid.push(row); }
+    SLOT_CELL.forEach(([c, r]) => { grid[r][c] = 1; });
+    this.easystar = new EasyStar.js();
+    this.easystar.setGrid(grid);
+    this.easystar.setAcceptableTiles([0]);
+    this.easystar.setIterationsPerCalculation(1000);
+
+    // ---- 世界层 / 互访层容器 + 各自定时器袋：切幕幂等清理的基础 ----
+    this.worldLayer = this.add.container(0, 0);
+    this.visitLayer = this.add.container(0, 0);
+    this.worldTimers = [];
+    this.visitTimers = [];
+    this.worldBuilt = false;
+    this.ownerAgent = null;
+
+    // 计时器（第 3 幕验收证据：碰一碰触发 → 使者离场的真实秒数）
+    this.timerText = this.add.text(W - 8, 8, '', {
+      fontFamily: '"SF Mono",Menlo,monospace', fontSize: '12px', color: '#7EC8E3'
+    }).setOrigin(1, 0).setVisible(false);
+    this.visitStartAt = 0;
+    this.visitRunning = false;
+
+    // 评论气泡（复用单个对象，mono 小字）
+    this.bubble = this.add.text(0, 0, '', {
+      fontFamily: '"SF Mono",Menlo,monospace', fontSize: '11px', color: '#E8A25C',
+      backgroundColor: 'rgba(13,18,36,0.92)', padding: { x: 8, y: 5 },
+      wordWrap: { width: 230 }, align: 'left', lineSpacing: 4
+    }).setOrigin(0.5, 1).setVisible(false);
+
+    this.applySpeed();
+    goAct(1); // 启动进入第 1 幕
+  }
+
+  update(){
+    this.easystar.calculate(); // EasyStar 异步寻路需在主循环中驱动
+    if (this.visitRunning){
+      const secs = (performance.now() - this.visitStartAt) / 1000;
+      this.timerText.setText('⏱ ' + secs.toFixed(1) + 's');
+    }
+  }
+
+  // 全局 SPEED 作用于 Phaser 侧所有 tween / delayedCall / 定时事件
+  applySpeed(){ this.time.timeScale = SPEED; this.tweens.timeScale = SPEED; }
+
+  // ==========================================================================
+  // 美术：全部用 Graphics 程序生成纹理，禁止加载任何图片 / 字体文件
+  // ==========================================================================
+  makeTextures(){
+    if (this.textures.exists('lm_lab')) return; // 只生成一次
+    const g = this.add.graphics();
+
+    // ---- 地标 · lab：带暖光窗户的小楼（56×56）----
+    g.fillStyle(0x0e1426, 1); g.fillEllipse(28, 50, 44, 8);          // 底部阴影
+    g.fillStyle(0x1d2742, 1); g.fillRect(10, 16, 36, 32);            // 楼体
+    g.fillStyle(0x2a3860, 1); g.fillRect(10, 16, 36, 4);             // 屋顶高光
+    g.fillStyle(0xE8A25C, 1); g.fillRect(18, 24, 20, 16);            // 暖窗
+    g.fillStyle(0xF7CE8C, 1); g.fillRect(21, 27, 14, 10);            // 窗芯更亮
+    g.fillStyle(0x1d2742, 1); g.fillRect(26, 24, 4, 16); g.fillRect(18, 30, 20, 3); // 窗框十字
+    g.fillStyle(0x7EC8E3, 1); g.fillCircle(42, 12, 2);               // 屋顶小灯
+    g.generateTexture('lm_lab', 56, 56);
+
+    // ---- 地标 · shelf：多层架子 + 错落小方块（烂尾项目）----
+    g.clear();
+    g.fillStyle(0x0e1426, 1); g.fillEllipse(28, 50, 44, 8);
+    g.fillStyle(0x241d33, 1); g.fillRect(8, 8, 40, 40);              // 背板
+    g.lineStyle(2, 0x4a3b5e, 1); g.strokeRect(8, 8, 40, 40);
+    [16, 26, 36].forEach(y => { g.fillStyle(0x4a3b5e, 1); g.fillRect(10, y, 36, 2); }); // 三层板
+    const boxes = [[12,11,0x7EC8E3],[20,12,0xE8A25C],[30,11,0x5E6B8C],[38,12,0xE8A25C],
+                   [14,21,0x5E6B8C],[24,20,0x7EC8E3],[34,21,0x5E6B8C],
+                   [12,31,0xE8A25C],[22,32,0x5E6B8C],[32,30,0x7EC8E3],[40,31,0x5E6B8C]];
+    boxes.forEach(([x, y, c]) => { g.fillStyle(c, 1); g.fillRect(x, y, 5, 5); });
+    g.generateTexture('lm_shelf', 56, 56);
+
+    // ---- 地标 · statue：底座 + 小铜像 ----
+    g.clear();
+    g.fillStyle(0x0e1426, 1); g.fillEllipse(28, 50, 44, 8);
+    g.fillStyle(0x2a3350, 1); g.fillRect(10, 38, 36, 10);            // 底座
+    g.fillStyle(0x38466e, 1); g.fillRect(16, 30, 24, 8);             // 二层
+    g.fillStyle(0xE8A25C, 1); g.fillRect(22, 16, 12, 14);            // 铜身
+    g.fillCircle(28, 12, 5);                                         // 铜头
+    g.fillStyle(0xF7CE8C, 1); g.fillRect(24, 18, 3, 10);             // 高光
+    g.generateTexture('lm_statue', 56, 56);
+
+    // ---- 地标 · greenhouse：玻璃房 + 绿色植物点 ----
+    g.clear();
+    g.fillStyle(0x0e1426, 1); g.fillEllipse(28, 50, 44, 8);
+    g.fillStyle(0x7EC8E3, 0.16); g.fillRect(10, 14, 36, 32);         // 玻璃
+    g.lineStyle(2, 0x9fdcf2, 0.9);
+    g.strokeRect(10, 14, 36, 32);
+    g.lineBetween(28, 14, 28, 46); g.lineBetween(10, 30, 46, 30);    // 框架十字
+    g.lineBetween(10, 14, 28, 6); g.lineBetween(46, 14, 28, 6);      // 屋顶斜线
+    g.fillStyle(0x4CAF7D, 1);
+    g.fillCircle(18, 38, 3); g.fillCircle(28, 40, 4); g.fillCircle(38, 37, 3); // 植物
+    g.fillStyle(0x6FCF97, 1); g.fillCircle(23, 33, 2); g.fillCircle(34, 32, 2);
+    g.generateTexture('lm_greenhouse', 56, 56);
+
+    // ---- 地标 · album：竖立画架 + 画了一半的画框 ----
+    g.clear();
+    g.fillStyle(0x0e1426, 1); g.fillEllipse(28, 50, 40, 8);
+    g.lineStyle(3, 0x8a6a4a, 1);
+    g.lineBetween(20, 48, 26, 20); g.lineBetween(36, 48, 30, 20);    // 架腿
+    g.fillStyle(0x8a6a4a, 1); g.fillRect(14, 8, 28, 22);             // 画框
+    g.fillStyle(0xe9e2d0, 1); g.fillRect(17, 11, 22, 16);            // 画布
+    g.lineStyle(2, 0xE8A25C, 1); g.lineBetween(19, 24, 30, 14);      // 画了一半的笔触
+    g.lineStyle(2, 0x5E6B8C, 1); g.lineBetween(19, 15, 24, 12);
+    g.generateTexture('lm_album', 56, 56);
+
+    // ---- 住民 · 看门的猫（32×32）----
+    g.clear();
+    g.fillStyle(0x3a4358, 1);
+    g.fillTriangle(6, 10, 10, 2, 13, 10);                            // 左耳
+    g.fillTriangle(19, 10, 22, 2, 26, 10);                           // 右耳
+    g.fillCircle(16, 14, 9);                                         // 头
+    g.fillEllipse(16, 25, 16, 10);                                   // 身
+    g.lineStyle(3, 0x3a4358, 1);
+    g.beginPath(); g.arc(24, 24, 6, 0.3, 2.6); g.strokePath();       // 尾巴
+    g.fillStyle(0x7EC8E3, 1); g.fillRect(11, 12, 3, 3); g.fillRect(19, 12, 3, 3); // 眼
+    g.generateTexture('res_cat', 32, 32);
+
+    // ---- 住民 · 浇水的机器人（32×32）----
+    g.clear();
+    g.fillStyle(0x5E6B8C, 1); g.fillRect(8, 6, 16, 12);              // 方头
+    g.fillStyle(0x7EC8E3, 1); g.fillRect(11, 10, 10, 3);             // 眼带
+    g.fillStyle(0x465273, 1); g.fillRect(10, 19, 12, 10);            // 方块身
+    g.lineStyle(1, 0x7EC8E3, 1); g.lineBetween(16, 6, 16, 2);
+    g.fillStyle(0xE8A25C, 1); g.fillCircle(16, 2, 1.5);              // 天线
+    g.fillStyle(0x4CAF7D, 1); g.fillRect(24, 22, 4, 6);              // 手边小水壶
+    g.generateTexture('res_robot', 32, 32);
+
+    // ---- 使者：圆润小宠物（主人青蓝 / 来访铜金），头顶呆毛天线 ----
+    const makeAgent = (key, color) => {
+      g.clear();
+      g.lineStyle(1, 0xffffff, 0.9); g.lineBetween(14, 7, 14, 2);    // 呆毛
+      g.fillStyle(0xffffff, 1); g.fillCircle(14, 2, 1.3);            // 呆毛尖
+      g.fillStyle(color, 1); g.fillCircle(14, 17, 10);               // 圆身体
+      g.fillStyle(0x0B0F1E, 1); g.fillCircle(10, 15, 1.7); g.fillCircle(18, 15, 1.7); // 眼
+      g.fillStyle(0xffffff, 0.35); g.fillCircle(10, 11, 3);          // 高光
+      g.generateTexture(key, 28, 28);
+    };
+    makeAgent('agent_owner', 0x7EC8E3);
+    makeAgent('agent_visitor', 0xE8A25C);
+
+    // ---- 星星 / 尘埃粒子 ----
+    g.clear(); g.fillStyle(0xffffff, 1); g.fillRect(0, 0, 2, 2);
+    g.generateTexture('px_star', 2, 2);
+    g.clear(); g.fillStyle(0xffffff, 1); g.fillCircle(4, 4, 3);
+    g.generateTexture('px_dust', 8, 8);
+
+    g.destroy();
+  }
+
+  // 背景：墨蓝黑底 + 稍亮一格的地面 + 极淡网格 + 稀疏闪烁星星（常驻，不随幕清理）
+  drawBackground(){
+    const g = this.add.graphics();
+    g.fillStyle(0x0B0F1E, 1); g.fillRect(0, 0, W, H);
+    g.fillStyle(0x0E1428, 1); g.fillRect(0, MAP_Y, W, H - MAP_Y);    // 地面
+    g.lineStyle(1, 0x1B2440, 0.35);
+    for (let c = 0; c <= COLS; c++) g.lineBetween(c * T, MAP_Y, c * T, H);
+    for (let r = 0; r <= ROWS; r++) g.lineBetween(0, MAP_Y + r * T, W, MAP_Y + r * T);
+    g.lineStyle(1, 0x263154, 0.6); g.lineBetween(0, MAP_Y, W, MAP_Y); // 标题栏分隔线
+    for (let i = 0; i < 42; i++){
+      const s = this.add.image(
+        Phaser.Math.Between(4, W - 4), Phaser.Math.Between(4, H - 4), 'px_star'
+      ).setAlpha(Phaser.Math.FloatBetween(0.15, 0.7))
+       .setScale(Phaser.Math.FloatBetween(0.6, 1.4));
+      if (Math.random() < 0.5){ // 一半星星轻微闪烁
+        this.tweens.add({ targets: s, alpha: 0.08, duration: Phaser.Math.Between(900, 2400),
+          yoyo: true, repeat: -1, delay: Phaser.Math.Between(0, 1500) });
+      }
+    }
+  }
+
+  // ==========================================================================
+  // 幂等清理：定时器全部移除、容器内对象杀 tween 后销毁
+  // ==========================================================================
+  clearLayer(layer, timers){
+    timers.forEach(t => { if (t) t.remove(false); });
+    timers.length = 0;
+    layer.each(child => this.tweens.killTweensOf(child));
+    layer.removeAll(true);
+  }
+  cleanupWorld(){
+    this.clearLayer(this.worldLayer, this.worldTimers);
+    this.worldBuilt = false;
+    this.ownerAgent = null;
+  }
+  cleanupVisit(){
+    this.clearLayer(this.visitLayer, this.visitTimers);
+    this.visitRunning = false;
+    this.timerText.setVisible(false);
+    this.tweens.killTweensOf(this.bubble);
+    this.bubble.setVisible(false);
+  }
+
+  // ==========================================================================
+  // 第 2 幕 · 世界生成动画（animated=false 时瞬时建成，供直接跳幕兜底）
+  // ==========================================================================
+  buildWorld(animated){
+    this.cleanupWorld();
+    const w = WORLDS[worldKey];
+    const token = actToken;
+
+    // ---- 地标按 slot 顺序逐个「长出来」----
+    w.landmarks.forEach((lm, i) => {
+      const [c, r] = SLOT_CELL[lm.slot];
+      const x = cx(c), y = cy(r);
+      const spr = this.add.image(x, y, 'lm_' + lm.type).setScale(animated ? 0 : 1);
+      const label = this.add.text(x, y + 32, '', {
+        fontFamily: '-apple-system,"PingFang SC",sans-serif', fontSize: '10px', color: '#C7D2E8',
+        backgroundColor: 'rgba(11,15,30,0.55)', padding: { x: 4, y: 2 }
+      }).setOrigin(0.5, 0);
+      if (!animated) label.setText(lm.name);
+      this.worldLayer.add([spr, label]);
+      if (!animated) return;
+
+      this.worldTimers.push(this.time.delayedCall(450 + i * 750, () => {
+        if (token !== actToken) return;
+        // 从 0 → 1 弹性生长
+        this.tweens.add({ targets: spr, scale: 1, duration: 650, ease: 'Back.easeOut' });
+        // 底部扬起尘埃
+        const dust = this.add.particles(x, y + 22, 'px_dust', {
+          speed: { min: 15, max: 55 }, angle: { min: 200, max: 340 },
+          lifespan: 520, scale: { start: 0.9, end: 0 }, alpha: { start: 0.6, end: 0 },
+          tint: 0xC9A06A, emitting: false
+        });
+        this.worldLayer.add(dust);
+        dust.explode(12);
+        this.worldTimers.push(this.time.delayedCall(1000, () => { if (dust.active) dust.destroy(); }));
+        // 地标名打字机浮现
+        this.typewrite(label, lm.name, this.worldTimers, token);
+      }));
+    });
+
+    // ---- 世界名衬线大标题：顶部落下 → 停留 1.5s → 收缩成常驻标题栏 ----
+    const heroAt = 450 + w.landmarks.length * 750 + 450;
+    const nameT = this.add.text(W / 2, -40, w.world_name, {
+      fontFamily: '"Songti SC","STSong",Georgia,serif', fontSize: '30px', color: '#E8A25C'
+    }).setOrigin(0.5).setAlpha(0);
+    const subT = this.add.text(W / 2, 196, w.climate, {
+      fontFamily: '-apple-system,"PingFang SC",sans-serif', fontSize: '12px', color: '#9AA7C7'
+    }).setOrigin(0.5).setAlpha(0);
+    this.worldLayer.add([nameT, subT]);
+
+    if (!animated){
+      nameT.setPosition(W / 2, 26).setScale(0.6).setAlpha(1);
+      subT.setPosition(W / 2, 47).setScale(0.85).setAlpha(0.85);
+      this.spawnResidents(false);
+      return;
+    }
+    this.worldTimers.push(this.time.delayedCall(heroAt, () => {
+      if (token !== actToken) return;
+      this.tweens.add({ targets: nameT, y: 158, alpha: 1, duration: 700, ease: 'Cubic.easeOut' });
+      this.tweens.add({ targets: subT, alpha: 1, duration: 500, delay: 350 });
+      this.worldTimers.push(this.time.delayedCall(700 + 350 + 1500, () => {
+        if (token !== actToken) return;
+        this.tweens.add({ targets: nameT, y: 26, scale: 0.6, duration: 650, ease: 'Cubic.easeInOut' });
+        this.tweens.add({ targets: subT, y: 47, scale: 0.85, alpha: 0.85, duration: 650 });
+        this.spawnResidents(true); // 住民与主人使者最后淡入
+      }));
+    }));
+  }
+
+  // 打字机效果
+  typewrite(label, full, bag, token){
+    let i = 0;
+    const ev = this.time.addEvent({
+      delay: 42, repeat: full.length - 1,
+      callback: () => {
+        if (token !== actToken || !label.active){ ev.remove(false); return; }
+        i++;
+        label.setText(full.slice(0, i));
+      }
+    });
+    bag.push(ev);
+  }
+
+  // 住民 + 主人使者（青蓝小宠物，常驻 idle 呼吸）
+  spawnResidents(animated){
+    const w = WORLDS[worldKey];
+    const resKey = worldKey === 'A' ? 'res_cat' : 'res_robot';
+    const res = this.add.image(cx(RES_CELL[0]), cy(RES_CELL[1]), resKey).setScale(1.2);
+    const owner = this.add.image(cx(OWNER_CELL[0]), cy(OWNER_CELL[1]), 'agent_owner');
+    const rlabel = this.add.text(cx(RES_CELL[0]), cy(RES_CELL[1]) + 22, w.residents[0].name, {
+      fontFamily: '-apple-system,"PingFang SC",sans-serif', fontSize: '9px', color: '#5E6B8C'
+    }).setOrigin(0.5, 0);
+    this.worldLayer.add([res, owner, rlabel]);
+    this.ownerAgent = owner;
+    // 主人使者 idle：原地呼吸缩放（第 3 幕演出期间也保持）
+    this.tweens.add({ targets: owner, scale: 1.07, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    if (animated){
+      [res, owner, rlabel].forEach(o => o.setAlpha(0));
+      this.tweens.add({ targets: [res, owner, rlabel], alpha: 1, duration: 600, delay: 200 });
+    }
+    this.worldBuilt = true;
+  }
+
+  // ==========================================================================
+  // 第 3 幕 · 碰一碰互访演出（全程 ≤30s，计时器为证）
+  // ==========================================================================
+  enterAct3(){
+    // 真实触发：线下 NFC「碰一碰」→ POST /bump { my_id, peer_id } → { visit_id }
+    //   随后 GET /visit/{id} 拉取 VisitResult（气泡 / 游记 / 契合度）
+    //   WS /ws/{user_id} 推送使者实时位置与双机呼吸灯指令。Demo 全部 mock。
+    this.cleanupVisit();
+    if (!this.worldBuilt) this.buildWorld(false); // 直接跳幕时先补建世界（无动画）
+    const token = actToken;
+
+    // 来访使者（铜金，与主人青蓝区分）从地图左边缘外走入
+    const visitor = this.add.image(-30, cy(ENTRY_CELL[1]), 'agent_visitor');
+    this.visitLayer.add(visitor);
+    this.tweens.add({ targets: visitor, scale: 1.07, duration: 850, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    // 计时器：从碰一碰触发开始计时
+    this.visitStartAt = performance.now();
+    this.visitRunning = true;
+    this.timerText.setVisible(true).setText('⏱ 0.0s');
+
+    // 演出脚本：入场 → 逐站 Easystar 寻路 → 停留冒泡 → 从来访方向离场
+    const stops = STOP_CELL.map(([c, r]) => ({ x: c, y: r }));
+    const visitStop = (i, fromCell) => {
+      if (token !== actToken) return;
+      if (i >= stops.length){ exitStage(stops[stops.length - 1]); return; }
+      const to = stops[i];
+      const arrive = () => {
+        if (token !== actToken) return;
+        this.showBubble(visitor, VISIT.bubbles[i].text); // 每站停留约 2.5s 冒评论气泡
+        this.visitTimers.push(this.time.delayedCall(2500, () => {
+          if (token !== actToken) return;
+          this.bubble.setVisible(false);
+          visitStop(i + 1, [to.x, to.y]);
+        }));
+      };
+      this.easystar.findPath(fromCell[0], fromCell[1], to.x, to.y, path => {
+        if (token !== actToken) return;
+        if (!path){ arrive(); return; } // 兜底：无路则视为到达（网格设计保证不会发生）
+        this.walkPath(visitor, path, token, arrive);
+      });
+    };
+    const exitStage = from => {
+      if (token !== actToken) return;
+      this.easystar.findPath(from.x, from.y, EXIT_CELL[0], EXIT_CELL[1], path => {
+        if (token !== actToken) return;
+        const after = () => {
+          this.tweens.add({ targets: visitor, x: -40, duration: 600, ease: 'Linear',
+            onComplete: () => {
+              if (token !== actToken) return;
+              // 使者离场：停表，显示实际秒数（验收证据）
+              this.visitRunning = false;
+              const secs = ((performance.now() - this.visitStartAt) / 1000).toFixed(1);
+              this.timerText.setText('✓ ' + secs + 's');
+              this.visitTimers.push(this.time.delayedCall(700, () => {
+                if (token === actToken) goAct(4); // 演出结束自动进入第 4 幕
+              }));
+            }});
+        };
+        if (!path){ after(); return; }
+        this.walkPath(visitor, path, token, after);
+      });
+    };
+
+    // 入场：从画布外走入入场格，然后开始逐站访问
+    this.tweens.add({ targets: visitor, x: cx(ENTRY_CELL[0]), duration: 500, ease: 'Linear',
+      onComplete: () => visitStop(0, ENTRY_CELL) });
+  }
+
+  // 沿 Easystar 路径逐格行走（path[0] 是所在格，跳过）
+  walkPath(sprite, path, token, done){
+    let i = 1;
+    const step = () => {
+      if (token !== actToken || !sprite.active) return;
+      if (i >= path.length){ done(); return; }
+      const p = path[i];
+      this.tweens.add({ targets: sprite, x: cx(p.x), y: cy(p.y), duration: 150, ease: 'Linear',
+        onComplete: () => { i++; step(); } });
+    };
+    step();
+  }
+
+  // 头顶评论气泡（mono 小字，内容取 bubbles[slot].text）
+  showBubble(visitor, text){
+    const bx = Phaser.Math.Clamp(visitor.x, 70, W - 70);
+    this.bubble.setText(text).setPosition(bx, visitor.y - 24).setVisible(true).setAlpha(0);
+    this.tweens.add({ targets: this.bubble, alpha: 1, duration: 220 });
+  }
+}
+
+// ============================================================================
+// 幕次切换总入口：重复进入先清理旧状态，保证幂等
+// ============================================================================
+function goAct(n){
+  currentAct = n;
+  actToken++; // 令牌失效化所有旧异步回调
+  document.body.classList.remove('breathing');
+  dom.act1.classList.remove('show', 'fade');
+  dom.act4.classList.remove('show');
+  dom.infoPanel.classList.remove('show');
+  document.querySelectorAll('#bar [data-act]').forEach(b => b.classList.toggle('on', +b.dataset.act === n));
+  const s = scene;
+  if (!s) return;
+  if (n === 1){ s.cleanupVisit(); s.cleanupWorld(); showAct1(); }
+  else if (n === 2){ s.cleanupVisit(); s.buildWorld(true); }
+  else if (n === 3){ s.enterAct3(); }
+  else if (n === 4){
+    s.cleanupVisit();
+    if (!s.worldBuilt) s.buildWorld(false); // 直接跳幕时补一座静态世界作背景
+    showAct4();
+  }
+}
+
+// ============================================================================
+// 第 1 幕 · 建世界（DOM overlay，模拟微信 H5）
+// ============================================================================
+function showAct1(){
+  dom.act1.classList.add('show');
+  dom.steps.forEach(li => li.classList.remove('on'));
+  dom.genBtn.disabled = false;
+  dom.genBtn.textContent = '生成我的世界';
+}
+dom.genBtn.addEventListener('click', () => {
+  // 真实流程：POST /profile { homepage_url: dom.homeUrl.value } → 返回 World JSON（契约见文件顶部注释）
+  const token = actToken;
+  dom.genBtn.disabled = true;
+  dom.genBtn.textContent = '生成中…';
+  let i = 0;
+  const tick = () => {
+    if (token !== actToken) return;
+    dom.steps[i].classList.add('on'); // 步骤文案逐个点亮
+    i++;
+    if (i < dom.steps.length) setTimeout(tick, D(1200));
+    else setTimeout(() => {
+      if (token !== actToken) return;
+      dom.act1.classList.add('fade'); // 完成后淡出，进入第 2 幕
+      setTimeout(() => { if (token === actToken) goAct(2); }, D(500));
+    }, D(1200));
+  };
+  setTimeout(tick, D(350));
+});
+
+// ============================================================================
+// 第 4 幕 · 游记卡片（DOM overlay，先给结论再给正文）
+// ============================================================================
+function showAct4(){
+  const v = VISIT;
+  document.body.classList.add('breathing'); // 页面边缘铜色呼吸光晕：模拟两台 M5Dial 同频呼吸
+  dom.act4.classList.add('show');
+  dom.resLine.textContent = v.resonance.line;
+  dom.travelo.textContent = v.travelogue;
+  dom.travelo.classList.remove('open');
+  dom.expandBtn.textContent = '展开游记 ▾';
+  dom.opener.textContent = v.resonance.opener;
+  // 契合度大号数字 0 → 87 计数动画 + SVG 圆环进度
+  const token = actToken;
+  const target = v.resonance.score;
+  const C = 2 * Math.PI * 30; // 圆环周长（r=30）
+  dom.ringFg.style.strokeDasharray = String(C);
+  dom.ringFg.style.strokeDashoffset = String(C);
+  const t0 = performance.now(), dur = D(1200);
+  const frame = now => {
+    if (token !== actToken) return;
+    const k = Math.min(1, (now - t0) / dur);
+    const e = 1 - Math.pow(1 - k, 3); // easeOutCubic
+    dom.scoreNum.textContent = String(Math.round(target * e));
+    dom.ringFg.style.strokeDashoffset = String(C * (1 - (target / 100) * e));
+    if (k < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+dom.expandBtn.addEventListener('click', () => {
+  const open = dom.travelo.classList.toggle('open');
+  dom.expandBtn.textContent = open ? '收起游记 ▴' : '展开游记 ▾';
+});
+dom.closeCard.addEventListener('click', () => {
+  dom.act4.classList.remove('show');
+  document.body.classList.remove('breathing');
+});
+
+// ============================================================================
+// 控制条：四幕跳转 / 速度切换 / 世界切换 / 说明面板
+// ============================================================================
+document.querySelectorAll('#bar [data-act]').forEach(b => {
+  // 「③ 📡 碰一碰」：真实触发为 NFC 碰一碰 → POST /bump（契约见 enterAct3 注释），Demo 用按钮模拟
+  b.addEventListener('click', () => goAct(+b.dataset.act));
+});
+dom.speedBtn.addEventListener('click', () => {
+  SPEED = SPEED === 1 ? 2 : 1;
+  dom.speedBtn.textContent = SPEED + '×';
+  if (scene) scene.applySpeed();
+});
+dom.worldBtn.addEventListener('click', () => {
+  worldKey = worldKey === 'A' ? 'B' : 'A';
+  dom.worldBtn.textContent = worldKey === 'A' ? '熬夜实验室 ⇄ 凌晨花房' : '凌晨花房 ⇄ 熬夜实验室';
+  goAct(2); // 切换后回到第 2 幕重播生成动画（地标纹理 / 名字 / 住民全部换成对应世界）
+});
+dom.infoBtn.addEventListener('click', () => dom.infoPanel.classList.add('show'));
+dom.infoClose.addEventListener('click', () => dom.infoPanel.classList.remove('show'));
+dom.infoPanel.addEventListener('click', e => {
+  if (e.target === dom.infoPanel) dom.infoPanel.classList.remove('show');
+});
+
+// ============================================================================
+// 启动：竖屏 390×640，Scale.FIT 自适应
+// ============================================================================
+const game = new Phaser.Game({
+  type: Phaser.AUTO,
+  parent: 'stage',
+  width: W,
+  height: H,
+  backgroundColor: '#0B0F1E',
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  render: { antialias: true },
+  scene: [MainScene]
+});
+</script>
+</body>
+</html>

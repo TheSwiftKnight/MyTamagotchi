@@ -1,0 +1,95 @@
+<section class="block" id="s07">
+  <div class="wrap">
+    <p class="sec-label">SEC 07 · Interaction Design</p>
+    <h2>交互设计：不尴尬的破冰</h2>
+    <p class="lede">这是全部调研里对产品成败最关键的一节。技术决定 demo 能不能跑，这一节决定评委和用户碰完之后是「哇」还是「好尬」。</p>
+
+    <h3><span class="h3n">07.1</span>同步性：灯光设计有心理学弹药</h3>
+    <ul>
+      <li>荟萃分析：<strong>神经同步与行为同步之间存在中等效应量 r = 0.32</strong>（生理×行为为小效应量 r = 0.18）；<strong>社会亲密度与 alpha 频段神经同步正相关 r = 0.264</strong>（Mutual Wave Machine 系列，累计 1,000+ 被试）<span class="chip fact">已证实</span>；「视觉化同步反馈增强陌生人社会连接感」为该系列研究的定性结论</li>
+      <li>CommonTies 手环研究：匹配者手环闪<strong>相同颜色与节奏</strong>、但不泄露具体匹配内容——「信息稀缺设计」反而激发对话中的自我揭露<span class="chip fact">已证实</span></li>
+      <li>设计翻译：两只宠物匹配成功时，进入<strong>同频呼吸灯 / 同频心跳震动</strong>——比「亮绿灯」更能唤起「命中注定感」。允许主动抚摸打断同步，保住控制感。</li>
+    </ul>
+
+    <h3><span class="h3n">07.2</span>面子工程：似真否认 ＋ 双向确认</h3>
+    <p>核心概念是 <strong>Plausible Deniability（似真否认）</strong>：系统必须为「不回应」提供体面的客观借口——「他可能没感觉到震动」「设备可能没电了」。只要不提供已读回执，拒绝方无负担、被拒方不丢脸。</p>
+    <div class="tblwrap"><table>
+      <thead><tr><th>范式来源</th><th>机制</th><th>拒绝可见度</th><th>实体映射</th></tr></thead>
+      <tbody>
+        <tr><td>Tinder</td><td>双向盲选，单向喜欢只后台记录</td><td>零</td><td>双方都抚摸设备才亮同步光；单向抚摸无任何外显反馈</td></tr>
+        <tr><td>Bumble</td><td>匹配后指定方先发言</td><td>低（过期 ≈ 太忙）</td><td>设「倾听者/发起者」物理开关</td></tr>
+        <tr><td>LinkedIn / 活动 App</td><td>请求-确认</td><td>中高（Pending 即隐性拒绝）</td><td>黄色呼吸灯示请求，几分钟后自然熄灭 =「我没看到」的台阶</td></tr>
+      </tbody>
+    </table></div>
+    <p>再加两个实体专属招式：<strong>注意力转移</strong>——不想社交时轻拍两下，宠物进入「睡觉/进食」动画，「我不想理你」变成「我的小宠物在忙」，宠物是挡箭牌；<strong>异步延迟</strong>——相遇瞬间只做隐形握手，走开后才提示「刚才遇到一位匹配的朋友」，彻底消除面对面即时压力。</p>
+
+    <h3><span class="h3n">07.3</span>StreetPass：游戏史上最成功的近场被动社交之一，三条成功密码</h3>
+    <div class="callout">
+      <p class="co-label">Case Study · Nintendo StreetPass（3DS 擦肩通信）</p>
+      <p><strong>① 异步通信消解即时压力：</strong>两台睡眠中的 3DS 靠近（约 20 米）自动静默交换 Mii 与游戏数据。地铁上擦肩只亮绿灯，回家打开才看到对方的 Mii 走进你的广场——物理同步相遇 × 社交异步反馈，社交评估焦虑归零。<strong>② 游戏外壳提供正当性：</strong>玩家出门不是为了「搭讪」而是为了「收集拼图碎片/召集勇者」，为携带设备提供了强烈非社交借口。<strong>③ 盲盒式偶遇感：</strong>不知道会遇到谁的不确定性本身即奖励。<br><br><strong>死因同样重要：</strong>强依赖人口密度（日本通勤文化），北美车轮社会即失效——任天堂后来靠中继站补救。<strong>直接推论：本产品是「场景型」的，AdventureX 现场 800+ 人的高密度 + 共同身份认同恰是它的天然主场；别把「日常通勤佩戴」写进故事。</strong></p>
+    </div>
+    <p>同谱系佐证：Tamagotchi Connection 的红外对战强制两机物理对齐、Pokémon Link Cable 强制线下面对面交换——<strong>「必须两个人到场」的物理仪式本身就是社交价值</strong>；AirTag 则证明用户愿意无负担携带一个纯被动广播的小物件。</p>
+
+    <h3><span class="h3n">07.4</span>代理越权：信任的第一杀手</h3>
+    <p>用户最深的恐惧：「这小东西会不会把我很中二的爱好告诉陌生人？」真实事故：Alexa 误录夫妇私聊并发给同事（2018）、Meta 内部 agent 越权暴露敏感数据、Replika 被意大利罚 500 万欧元、MoltMatch 擅自建档盗图。解法是把设备定位成 <strong>Social Proxy（社会中继）而非人格镜像</strong>：</p>
+    <ul>
+      <li>宠物<strong>不以第一人称冒充主人</strong>（不说「我是 A，我喜欢你」，只说「我发现了一位有 3 块音乐碎片的朋友」）；</li>
+      <li><strong>物理可见的披露开关</strong>：拨动开关切换「全面开放 / 仅职场话题 / 勿扰」，翻转设备背面朝外即切断一切扫描；</li>
+      <li><strong>让设备背锅</strong>：尴尬匹配时用可爱的系统错误当台阶（「小宠物的雷达今天短路啦」）。</li>
+    </ul>
+
+    <h3><span class="h3n">07.5</span>设计准则速查</h3>
+    <div class="mustavoid">
+      <div class="ma must">
+        <h4>✓ 必须遵守</h4>
+        <ul>
+          <li><b>渐进式私密通知</b>先只有本人可感知的震动/微光，绝不第一时间外放声光</li>
+          <li><b>物理双向确认</b>双方都在时间窗内抚摸设备，才亮同频光效</li>
+          <li><b>游戏化异步收集</b>擦肩自动生成「盲盒碎片」，回家再看；配二次相遇专属色唤醒</li>
+          <li><b>明确退避开关</b>翻面/合眼即断扫描，掌控感是安全感的来源</li>
+        </ul>
+      </div>
+      <div class="ma avoid">
+        <h4>✗ 必须避免</h4>
+        <ul>
+          <li><b>裸露具体信息</b>屏幕滚动「你们都喜欢三体！」——共同点应留给人自己在对话中挖掘，设备只发「入场券」</li>
+          <li><b>社牛代理人设</b>「主人快去搭讪，你们很配！」= 代理越权 + 不诚实拟人化，社恐用户会因失控而羞耻</li>
+          <li><b>宣判失败</b>单方确认后无回应时，绝不亮红灯/播失败音——永远保持模棱两可</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="s08">
+  <div class="wrap">
+    <p class="sec-label">SEC 08 · Business &amp; Compliance</p>
+    <h2>商业模式、成本与合规</h2>
+    <p class="lede">如果只做黑客松，本节是答辩弹药；如果想活成产品，本节是生死簿。</p>
+
+    <h3><span class="h3n">08.1</span>硬件成本的三个价格带</h3>
+    <div class="tblwrap"><table>
+      <thead><tr><th>价格带</th><th>典型配置</th><th>BOM 预估</th><th>毛利逻辑</th></tr></thead>
+      <tbody>
+        <tr><td>¥299</td><td>ESP32-S3 + 单麦单喇叭 + 点阵屏，无机械结构</td><td class="num">¥60–90</td><td>硬件暴利（&gt;60%）但云服务简陋，靠限 token/降智活着</td></tr>
+        <tr><td>¥999</td><td>中端 SoC/高通 AR1 + 2–4 自由度舵机 + 麦阵 + 基础摄像头</td><td class="num">¥300–450</td><td>毛利 30–50%，必须配年费订阅养云端</td></tr>
+        <tr><td>¥2999+</td><td>RK3588 级（端侧推理）+ 6 自由度静音舵机 + 多模态传感</td><td class="num">¥1,000–1,500</td><td>硬件微利，靠长期订阅赚 LTV</td></tr>
+      </tbody>
+    </table></div>
+    <p>量产门槛：开模 ¥5–20 万、认证 ¥5–10 万、MOQ 500–5,000 台；从原型到量产真实资金门槛 <strong>¥200–500 万、最快 3–6 个月</strong>。原型阶段的元件参考：ESP32-S3 芯片批量 ¥11.5–26、基础舵机 ¥20/个、0.91 寸 OLED ¥10。</p>
+
+    <h3><span class="h3n">08.2</span>推理税：吃掉硬件利润的隐形账单</h3>
+    <p>日均对话 30 分钟的用户：ASR ¥1.15 + LLM ¥0.5 + TTS ¥0.5 + RTC 调度 ¥0.6 ≈ <strong>¥2.75/天 → ¥82/月</strong>。若 ¥999 买断（利润约 ¥400），一个活跃用户 <strong>5 个月吃光全部硬件利润</strong>。这就是 Rabbit（约 10 万+ 台 → 活跃 5,000）与 Humane（发货 1 万台退货过半）的死亡数学。行业三条活路：订阅围墙（Plaud $99–239/年，ARR $1 亿）、端侧下沉（唤醒词/基础 ASR 本地跑）、暴力限额（体验杀手）。断供设计也要提前想：Humane 式「彻底变砖」摧毁购买意愿，正确做法是预留本地小模型兜底的「降智回滚」。</p>
+
+    <h3><span class="h3n">08.3</span>合规：A 的 agent 把 A 的信息发给 B 的 agent，法律上算什么</h3>
+    <ul>
+      <li><strong>定性：</strong>厂商通常被视为数据处理者（Processor），某些场景可构成共同数据控制者（Joint Controller）<span class="chip fact">已证实</span>——由此推论：责任无法完全推给「用户自愿」<span class="chip guess">推论</span></li>
+      <li><strong>同意形式：</strong>PIPL/GDPR 下，敏感信息（精确位置、生物特征）的自动化分享<strong>不能靠激活时一揽子勾选</strong>，需针对特定任务的明确授权（物理按压 / 明确语音确认）——这恰好与 SEC 07 的「物理双向确认」同构：<strong>合规要求与最佳交互在此重合，这是答辩亮点</strong></li>
+      <li><strong>旁观者隐私是最大死穴：</strong>Meta Ray-Ban 被哈佛学生做成实时人肉搜索（I-XRAY）后遭爱尔兰/意大利监管调查；Friend 挂坠被法国 CNIL 调查禁售；Bee 标称 7 天续航开监听后只剩 2 天。<strong>结论：不带常开麦克风/摄像头，是本项目最聪明的合规设计</strong>——碰一碰是「一次一授权」的天然形态</li>
+      <li><strong>量产级方案：</strong>机密计算（TEE）——两个 agent 在「上锁的黑匣子」里比对，只吐出结论字条，云厂商自己也看不见原始数据。在此之上，本报告的产品层设计建议：交换沙盒白名单 + 匹配达标且双方真人确认才解锁联系方式<span class="chip guess">设计推演</span></li>
+    </ul>
+
+    <h3><span class="h3n">08.4</span>冷启动：硬件社交的双刃剑</h3>
+    <p>劣势：设备渗透率为零时「街上走一年遇不到同类」。优势：实体自带 Social Signaling——造型奇特的设备在咖啡馆天然引发询问。历史配方一致：<strong>Come for the tool, stay for the network</strong>——Tamagotchi 先是单机养成再有红外交友；AirTag 寄生在十几亿 iOS 设备的 Find My 网络上；Pokémon GO 用单机捕捉乐趣把人聚到同一坐标。<strong>本项目的推演：单机先是「能捏能亮的桌面情绪宠物 + Bonjour 式数字名片」，社交在活动场景引爆；且必须寄生手机生态（BLE + 手机网络），绝不做独立联网设备。</strong></p>
+  </div>
+</section>

@@ -1,0 +1,565 @@
+{
+  "_comment": "ForkWorld 世界注册表 v1 —— 全局大地图消费的数据。region 来自 the Ville sector 边界（data/sectors.json 程序化生成）。slot_tiles 为地标在大地图上的 tile 坐标（区域内布点）。正式版由后端 GET /worlds 返回同构数据。 agent_kind: 物品拟人角色类型（mug/camera/book/plush/lamp/headphones/mic），来自 ForkWorld Visual Direction。character 字段保留给后端 master_movement 管线兼容。",
+  "map": {
+    "maze_name": "the_ville",
+    "tile_px": 32,
+    "width": 140,
+    "height": 100
+  },
+  "worlds": [
+    {
+      "world_id": "w_aoye",
+      "owner": "阿鹏",
+      "character": "Klaus Mueller",
+      "region_sector": "artist's co-living space",
+      "region": {
+        "bounds": [
+          61,
+          24,
+          79,
+          36
+        ],
+        "anchor": [
+          70,
+          30
+        ]
+      },
+      "slot_tiles": {
+        "0": [
+          65,
+          28
+        ],
+        "1": [
+          70,
+          28
+        ],
+        "2": [
+          75,
+          28
+        ],
+        "3": [
+          65,
+          33
+        ],
+        "4": [
+          70,
+          33
+        ],
+        "5": [
+          75,
+          33
+        ]
+      },
+      "world": {
+        "world_name": "熬夜实验室",
+        "climate": "常年凌晨三点，星光很好",
+        "temperament": "安静但门永远开着",
+        "landmarks": [
+          {
+            "type": "lab",
+            "name": "通宵亮灯的实验室",
+            "from": "职业:嵌入式工程师",
+            "slot": 0
+          },
+          {
+            "type": "shelf",
+            "name": "堆着47个烂尾项目的架子",
+            "from": "兴趣:side project",
+            "slot": 1
+          },
+          {
+            "type": "statue",
+            "name": "第一块开发板纪念碑",
+            "from": "经历:第一块点亮的开发板",
+            "slot": 2
+          }
+        ],
+        "residents": [
+          {
+            "name": "看门的猫",
+            "personality": "替主人挡掉无聊的访客"
+          }
+        ]
+      },
+      "agent_kind": "lamp"
+    },
+    {
+      "world_id": "w_duorou",
+      "owner": "小满",
+      "character": "Isabella Rodriguez",
+      "region_sector": "The Willows Market and Pharmacy",
+      "region": {
+        "bounds": [
+          82,
+          34,
+          100,
+          46
+        ],
+        "anchor": [
+          91,
+          40
+        ]
+      },
+      "slot_tiles": {
+        "0": [
+          86,
+          38
+        ],
+        "1": [
+          91,
+          38
+        ],
+        "2": [
+          96,
+          38
+        ],
+        "3": [
+          86,
+          43
+        ],
+        "4": [
+          91,
+          43
+        ],
+        "5": [
+          96,
+          43
+        ]
+      },
+      "world": {
+        "world_name": "多肉银行",
+        "climate": "下午四点的阳光永远斜照",
+        "temperament": "慢吞吞，但每片叶子都被照顾到",
+        "landmarks": [
+          {
+            "type": "greenhouse",
+            "name": "三百盆多肉的玻璃房",
+            "from": "事实:满阳台多肉",
+            "slot": 0
+          },
+          {
+            "type": "studio",
+            "name": "堆满草稿的接稿画桌",
+            "from": "职业:独立插画师",
+            "slot": 1
+          },
+          {
+            "type": "market",
+            "name": "只卖喜欢的书的空想书店",
+            "from": "梦想:开书店",
+            "slot": 2
+          }
+        ],
+        "residents": [
+          {
+            "name": "住在花盆里的蜗牛",
+            "personality": "移动速度比截稿日还稳"
+          }
+        ]
+      },
+      "agent_kind": "book"
+    },
+    {
+      "world_id": "w_tianliang",
+      "owner": "老徐",
+      "character": "Wolfgang Schulz",
+      "region_sector": "Johnson Park",
+      "region": {
+        "bounds": [
+          82,
+          54,
+          100,
+          66
+        ],
+        "anchor": [
+          91,
+          60
+        ]
+      },
+      "slot_tiles": {
+        "0": [
+          86,
+          58
+        ],
+        "1": [
+          91,
+          58
+        ],
+        "2": [
+          96,
+          58
+        ],
+        "3": [
+          86,
+          63
+        ],
+        "4": [
+          91,
+          63
+        ],
+        "5": [
+          96,
+          63
+        ]
+      },
+      "world": {
+        "world_name": "四点半天亮前",
+        "climate": "永远是需要头灯的清晨",
+        "temperament": "数字归数字，山归山",
+        "landmarks": [
+          {
+            "type": "archive",
+            "name": "挂满完赛奖牌的墙",
+            "from": "事实:奖牌挂满一面墙",
+            "slot": 0
+          },
+          {
+            "type": "mountain",
+            "name": "周末专属的训练野径",
+            "from": "爱好:周末跑山野",
+            "slot": 1
+          },
+          {
+            "type": "library",
+            "name": "码着账本和跑表的书房",
+            "from": "职业:会计",
+            "slot": 2
+          }
+        ],
+        "residents": [
+          {
+            "name": "配速员兔子",
+            "personality": "从不回头看掉队的人"
+          }
+        ]
+      },
+      "agent_kind": "headphones"
+    },
+    {
+      "world_id": "w_shendu",
+      "owner": "Momo",
+      "character": "Maria Lopez",
+      "region_sector": "Oak Hill College",
+      "region": {
+        "bounds": [
+          61,
+          64,
+          79,
+          76
+        ],
+        "anchor": [
+          70,
+          70
+        ]
+      },
+      "slot_tiles": {
+        "0": [
+          65,
+          68
+        ],
+        "1": [
+          70,
+          68
+        ],
+        "2": [
+          75,
+          68
+        ],
+        "3": [
+          65,
+          73
+        ],
+        "4": [
+          70,
+          73
+        ],
+        "5": [
+          75,
+          73
+        ]
+      },
+      "world": {
+        "world_name": "深夜电台",
+        "climate": "永远是雨刚停的深夜",
+        "temperament": "低声细语，但信号满格",
+        "landmarks": [
+          {
+            "type": "radio_tower",
+            "name": "只对失眠者广播的天线",
+            "from": "爱好:播客主播",
+            "slot": 0
+          },
+          {
+            "type": "cafe",
+            "name": "只有一个座位的咖啡角",
+            "from": "习惯:独处充电",
+            "slot": 1
+          },
+          {
+            "type": "archive",
+            "name": "存着三千条语音的档案馆",
+            "from": "职业:声音收集者",
+            "slot": 2
+          },
+          {
+            "type": "pond",
+            "name": "倒映着月亮的小池塘",
+            "from": "性格:安静的浪漫",
+            "slot": 3
+          }
+        ],
+        "residents": [
+          {
+            "name": "值夜班的猫头鹰",
+            "personality": "对每个深夜来电都竖起耳朵"
+          }
+        ]
+      },
+      "agent_kind": "mic"
+    },
+    {
+      "world_id": "w_huoshan",
+      "owner": "大飞",
+      "character": "Eddy Lin",
+      "region_sector": "Hobbs Cafe",
+      "region": {
+        "bounds": [
+          40,
+          54,
+          58,
+          66
+        ],
+        "anchor": [
+          49,
+          60
+        ]
+      },
+      "slot_tiles": {
+        "0": [
+          44,
+          58
+        ],
+        "1": [
+          49,
+          58
+        ],
+        "2": [
+          54,
+          58
+        ],
+        "3": [
+          44,
+          63
+        ],
+        "4": [
+          49,
+          63
+        ],
+        "5": [
+          54,
+          63
+        ]
+      },
+      "world": {
+        "world_name": "火山口食堂",
+        "climate": "灶火常年不熄，油烟即云",
+        "temperament": "热闹，来者不拒",
+        "landmarks": [
+          {
+            "type": "kitchen",
+            "name": "一口会喷火的炒锅",
+            "from": "爱好:深夜爆炒",
+            "slot": 0
+          },
+          {
+            "type": "market",
+            "name": "凌晨批发市场的常客摊",
+            "from": "习惯:早起抢鲜货",
+            "slot": 1
+          },
+          {
+            "type": "stage",
+            "name": "边炒菜边脱口秀的灶台",
+            "from": "性格:人来疯",
+            "slot": 2
+          }
+        ],
+        "residents": [
+          {
+            "name": "偷吃的仓鼠",
+            "personality": "只偷最贵的那颗坚果"
+          }
+        ]
+      },
+      "agent_kind": "mug"
+    },
+    {
+      "world_id": "w_wanjuzhan",
+      "owner": "琪琪",
+      "character": "Ayesha Khan",
+      "region_sector": "Lin family's house",
+      "region": {
+        "bounds": [
+          40,
+          34,
+          58,
+          46
+        ],
+        "anchor": [
+          49,
+          40
+        ]
+      },
+      "slot_tiles": {
+        "0": [
+          44,
+          38
+        ],
+        "1": [
+          49,
+          38
+        ],
+        "2": [
+          54,
+          38
+        ],
+        "3": [
+          44,
+          43
+        ],
+        "4": [
+          49,
+          43
+        ],
+        "5": [
+          54,
+          43
+        ]
+      },
+      "world": {
+        "world_name": "玩具复活站",
+        "climate": "午后，灰尘在光柱里跳舞",
+        "temperament": "旧物在这里都有第二次生命",
+        "landmarks": [
+          {
+            "type": "workshop",
+            "name": "给旧玩具做手术的工作台",
+            "from": "爱好:玩具修复",
+            "slot": 0
+          },
+          {
+            "type": "museum",
+            "name": "陈列着童年的玻璃柜",
+            "from": "收藏:老玩具",
+            "slot": 1
+          },
+          {
+            "type": "treehouse",
+            "name": "挂满风铃的树屋诊所",
+            "from": "梦想:开修复店",
+            "slot": 2
+          }
+        ],
+        "residents": [
+          {
+            "name": "断了一只耳朵的兔子",
+            "personality": "复活站的第一位病人，现任站长"
+          }
+        ]
+      },
+      "agent_kind": "plush"
+    }
+  ],
+  "visits": [
+    {
+      "visit_id": "v_001",
+      "from": "w_aoye",
+      "to": "w_duorou",
+      "bubbles": [
+        {
+          "slot": 0,
+          "text": "三百盆多肉，好壮观"
+        },
+        {
+          "slot": 1,
+          "text": "草稿比我的代码还乱"
+        },
+        {
+          "slot": 2,
+          "text": "这家书店我想常驻"
+        }
+      ],
+      "travelogue": "她的世界永远停在下午四点，连蜗牛都不急。你后院那台失眠的机器，也许该来这里晒晒太阳。",
+      "resonance": {
+        "score": 87,
+        "line": "你们都把『没做完的事』摆在最显眼的位置",
+        "opener": "问问她：烂尾和慢工，哪个更浪漫？",
+        "hardware_feedback": {
+          "led_rgb": "#E8A25C",
+          "pattern": "breath",
+          "epoch_ms": 0
+        }
+      }
+    },
+    {
+      "visit_id": "v_002",
+      "from": "w_shendu",
+      "to": "w_tianliang",
+      "bubbles": [
+        {
+          "slot": 0,
+          "text": "每块奖牌都有配速"
+        },
+        {
+          "slot": 1,
+          "text": "头灯照亮的野径"
+        },
+        {
+          "slot": 2,
+          "text": "账本和跑表放一起"
+        }
+      ],
+      "travelogue": "他的清晨从四点半开始，和你的深夜刚好接上。你们共享同一段没人醒着的时间。",
+      "resonance": {
+        "score": 74,
+        "line": "你们的世界都亮着一盏别人看不见的灯",
+        "opener": "聊聊：凌晨四点的城市是什么味道？",
+        "hardware_feedback": {
+          "led_rgb": "#7EC8E3",
+          "pattern": "pulse",
+          "epoch_ms": 0
+        }
+      }
+    },
+    {
+      "visit_id": "v_003",
+      "from": "w_huoshan",
+      "to": "w_wanjuzhan",
+      "bubbles": [
+        {
+          "slot": 0,
+          "text": "手术台比我灶台还稳"
+        },
+        {
+          "slot": 1,
+          "text": "玻璃柜里全是童年"
+        },
+        {
+          "slot": 2,
+          "text": "风铃响得像开饭铃"
+        }
+      ],
+      "travelogue": "她修玩具的手比我颠勺还稳。旧物在她那里排队复活，像我这儿排队等宵夜。",
+      "resonance": {
+        "score": 81,
+        "line": "你们都在给别人的日常续命",
+        "opener": "问她：修过最难救的玩具是什么？",
+        "hardware_feedback": {
+          "led_rgb": "#E8634A",
+          "pattern": "breath",
+          "epoch_ms": 0
+        }
+      }
+    }
+  ]
+}

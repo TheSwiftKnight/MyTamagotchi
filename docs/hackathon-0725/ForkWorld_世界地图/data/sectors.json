@@ -1,0 +1,287 @@
+[
+ {
+  "sector_id": "32177",
+  "name": "Dorm for Oak Hill College",
+  "bounds": [
+   105,
+   31,
+   133,
+   62
+  ],
+  "center": [
+   119,
+   46
+  ],
+  "tiles": 524
+ },
+ {
+  "sector_id": "32135",
+  "name": "artist's co-living space",
+  "bounds": [
+   14,
+   17,
+   43,
+   35
+  ],
+  "center": [
+   28,
+   26
+  ],
+  "tiles": 513
+ },
+ {
+  "sector_id": "32146",
+  "name": "Oak Hill College",
+  "bounds": [
+   107,
+   19,
+   125,
+   34
+  ],
+  "center": [
+   116,
+   26
+  ],
+  "tiles": 288
+ },
+ {
+  "sector_id": "32176",
+  "name": "The Willows Market and Pharmacy",
+  "bounds": [
+   74,
+   42,
+   94,
+   53
+  ],
+  "center": [
+   84,
+   47
+  ],
+  "tiles": 248
+ },
+ {
+  "sector_id": "32147",
+  "name": "Tamara Taylor and Carmen Ortiz's house",
+  "bounds": [
+   50,
+   64,
+   63,
+   82
+  ],
+  "center": [
+   56,
+   73
+  ],
+  "tiles": 242
+ },
+ {
+  "sector_id": "32157",
+  "name": "Moreno family's house",
+  "bounds": [
+   68,
+   64,
+   81,
+   82
+  ],
+  "center": [
+   74,
+   73
+  ],
+  "tiles": 240
+ },
+ {
+  "sector_id": "32167",
+  "name": "Lin family's house",
+  "bounds": [
+   86,
+   64,
+   99,
+   82
+  ],
+  "center": [
+   92,
+   73
+  ],
+  "tiles": 240
+ },
+ {
+  "sector_id": "32166",
+  "name": "Harvey Oak Supply Store",
+  "bounds": [
+   56,
+   42,
+   71,
+   53
+  ],
+  "center": [
+   63,
+   47
+  ],
+  "tiles": 188
+ },
+ {
+  "sector_id": "32156",
+  "name": "Johnson Park",
+  "bounds": [
+   20,
+   41,
+   35,
+   51
+  ],
+  "center": [
+   27,
+   46
+  ],
+  "tiles": 176
+ },
+ {
+  "sector_id": "32136",
+  "name": "Hobbs Cafe",
+  "bounds": [
+   71,
+   17,
+   84,
+   26
+  ],
+  "center": [
+   77,
+   21
+  ],
+  "tiles": 136
+ },
+ {
+  "sector_id": "32195",
+  "name": "The Rose and Crown Pub",
+  "bounds": [
+   52,
+   18,
+   63,
+   26
+  ],
+  "center": [
+   57,
+   22
+  ],
+  "tiles": 104
+ },
+ {
+  "sector_id": "32175",
+  "name": "Giorgio Rossi's apartment",
+  "bounds": [
+   85,
+   12,
+   91,
+   25
+  ],
+  "center": [
+   88,
+   18
+  ],
+  "tiles": 98
+ },
+ {
+  "sector_id": "32185",
+  "name": "Carlos Gomez's apartment",
+  "bounds": [
+   92,
+   12,
+   98,
+   25
+  ],
+  "center": [
+   95,
+   18
+  ],
+  "tiles": 98
+ },
+ {
+  "sector_id": "32155",
+  "name": "Ryan Park's apartment",
+  "bounds": [
+   64,
+   13,
+   70,
+   26
+  ],
+  "center": [
+   67,
+   19
+  ],
+  "tiles": 98
+ },
+ {
+  "sector_id": "32186",
+  "name": "Adam Smith's house",
+  "bounds": [
+   19,
+   58,
+   25,
+   70
+  ],
+  "center": [
+   22,
+   64
+  ],
+  "tiles": 89
+ },
+ {
+  "sector_id": "32196",
+  "name": "Yuriko Yamamoto's house",
+  "bounds": [
+   27,
+   58,
+   33,
+   70
+  ],
+  "center": [
+   30,
+   64
+  ],
+  "tiles": 89
+ },
+ {
+  "sector_id": "32137",
+  "name": "Moore family's house",
+  "bounds": [
+   35,
+   58,
+   41,
+   70
+  ],
+  "center": [
+   38,
+   64
+  ],
+  "tiles": 89
+ },
+ {
+  "sector_id": "32145",
+  "name": "Arthur Burton's apartment",
+  "bounds": [
+   52,
+   13,
+   63,
+   19
+  ],
+  "center": [
+   57,
+   16
+  ],
+  "tiles": 64
+ },
+ {
+  "sector_id": "32165",
+  "name": "Isabella Rodriguez's apartment",
+  "bounds": [
+   71,
+   13,
+   84,
+   18
+  ],
+  "center": [
+   77,
+   15
+  ],
+  "tiles": 60
+ }
+]

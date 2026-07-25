@@ -1,0 +1,228 @@
+<section class="block" id="s09">
+  <div class="wrap">
+    <p class="sec-label">SEC 09 · 120-Hour Engineering Blueprint</p>
+    <h2>120 小时工程蓝图</h2>
+    <p class="lede">五天生死线下的原则：零焊接、零 3D 打印、零底层驱动调试。每个选型都给出「为什么不选别的」。</p>
+
+    <h3><span class="h3n">09.1</span>硬件：M5Stack 是唯一合理答案</h3>
+    <div class="tblwrap"><table>
+      <thead><tr><th>方案</th><th>芯片</th><th>集成度</th><th>5 天可行性</th><th>国内价格</th><th>判词</th></tr></thead>
+      <tbody>
+        <tr><td>M5Dial</td><td>ESP32-S3</td><td>极高：内置 WS1850S NFC 读卡 + 触摸屏 + 喇叭 + 外壳</td><td><span class="chip alive">极高</span></td><td class="num">~¥250</td><td><strong>首选</strong>——自带 NFC 读卡与触摸屏，高度集成免组装（设计联想：旋钮可做「宠物肚皮」）</td></tr>
+        <tr><td>M5Cardputer</td><td>ESP32-S3</td><td>高：56 键 + 屏 + 麦 + 双电池 + 外壳（NFC 需外接）</td><td><span class="chip alive">极高</span></td><td class="num">~¥210–250</td><td>次选，极客感强</td></tr>
+        <tr><td>M5StickC Plus2</td><td>ESP32-Pico</td><td>高（需外接 RFID Hat + 灯环）</td><td>高</td><td class="num">~¥150</td><td>预算紧的备选</td></tr>
+        <tr><td>Seeed XIAO S3 裸板</td><td>ESP32-S3</td><td>低：外壳/焊接/电源全自理</td><td><span class="chip dead">极低</span></td><td class="num">~¥50</td><td>3D 打印误差 + 排线会吃掉 48 小时</td></tr>
+        <tr><td>树莓派 Zero 2W</td><td>BCM2710A1</td><td>极低，Linux 开销大</td><td><span class="chip dead">低</span></td><td class="num">~¥150</td><td>WS2812 时序不如 MCU 稳</td></tr>
+        <tr><td>自研打板 ESP32-C6</td><td>ESP32-C6</td><td>理论最高</td><td><span class="chip dead">零</span></td><td>SMT 最快 72h</td><td>直接排除软硬联调可能</td></tr>
+      </tbody>
+    </table></div>
+    <p>外设走 Grove（HY2.0-4P）口：WS2812 灯环用 FastLED 库 10 分钟点亮。外接 NFC 选 <strong>PN532（¥30–45）</strong>而非 RC522（¥10–15）——协议兼容广、`Adafruit_PN532` 驱动完善、能读手机 HCE 卡。设计建议（本报告推演）：毛绒外壳套在 M5Dial 外面即是「宠物」，灯光从织物里透出。</p>
+    <div class="callout">
+      <p class="co-label">隐蔽陷阱 · 读卡器读不了读卡器</p>
+      <p>两台 M5Dial 互碰不会有任何反应——WS1850S 是 Reader，Reader 无法读 Reader。<strong>解法（Tagging Hack）：每台设备背面贴一张 ¥0.5 的无源 NTAG213 贴纸</strong>。A 的正面（读卡区）碰 B 的背面，读到的是 B 的唯一 ID 标签。「碰一碰」的方向性要在工业设计里画清楚。</p>
+    </div>
+
+    <h3><span class="h3n">09.2</span>设备互发现：ESP-NOW 广播压倒 BLE</h3>
+    <div class="tblwrap"><table>
+      <thead><tr><th>维度</th><th>BLE Beacon</th><th>ESP-NOW 广播</th></tr></thead>
+      <tbody>
+        <tr><td>延迟</td><td>密集场景发现延迟可达数秒</td><td class="num">1–10 ms（绕过 TCP/IP 握手）</td></tr>
+        <tr><td>节点数</td><td>理论无限，实际信道拥挤</td><td>广播模式（FF:FF:FF:FF:FF:FF）<strong>无上限</strong>；加密单播限 6–17</td></tr>
+        <tr><td>距离</td><td class="num">室内 10–30 m</td><td class="num">室内 20–75 m；空旷 LR 模式 800–1,000 m</td></tr>
+        <tr><td>单包负载</td><td class="num">~31 B</td><td class="num">250 B</td></tr>
+        <tr><td>心智模型</td><td>要拨号的蜂窝电话</td><td><strong>对讲机频道</strong>：同频段即按即说</td></tr>
+      </tbody>
+    </table></div>
+    <p>抗干扰三板斧：帧结构 <code class="mono">[Sender_MAC, Packet_ID, Payload]</code>；同包间隔 50ms 连发 3 次 + 接收方按 Packet_ID 去重；<code class="mono">esp_wifi_set_channel()</code> 全员锁死同一冷门信道（如 Ch.13），否则收不到彼此。</p>
+
+    <h3><span class="h3n">09.3</span>手机侧：iOS 小程序 HCE 是死路，扫码 H5 是活路</h3>
+    <p>微信小程序能力真相：Android 蓝牙/NFC/HCE 全支持；<strong>iOS 蓝牙可用、NFC 读标签可用（iPhone 7+）、HCE 彻底不支持</strong>（微信官方明确声明）。「用手机模拟卡去碰硬件」这条线上所有 iOS 用户全灭。原生 App 则死于 TestFlight 审核与现场装包耐心。<strong>推荐架构：硬件屏幕显示动态二维码 → 微信扫一扫 → 云端 H5 → WebSocket 连服务器 → 服务器经 MQTT 下发硬件指令</strong>——「虚假的物理直连，真实的云端互通」，全平台一致、120 小时内成功率最高。</p>
+
+    <h3><span class="h3n">09.4</span>Agent 层：最小可行架构（MVA）</h3>
+    <div class="tblwrap"><table>
+      <thead><tr><th>框架</th><th>模式</th><th>黑客松判词</th></tr></thead>
+      <tbody>
+        <tr><td>裸 LLM ×2 + JSON</td><td>无框架</td><td><span class="chip alive">推荐</span> 唯一能保证 100% 演示成功率的方案</td></tr>
+        <tr><td>OpenAI Agents SDK</td><td>Handoffs</td><td>最易上手但厂商锁定；本场景仍嫌多</td></tr>
+        <tr><td>CrewAI</td><td>角色流水线</td><td>DX 好，但重试/干预一复杂就崩</td></tr>
+        <tr><td>AutoGen</td><td>会话协商</td><td>发散难控，token 开销不可预测</td></tr>
+        <tr><td>LangGraph</td><td>状态图</td><td><span class="chip dead">过度设计</span> 学习曲线 1–2 周</td></tr>
+        <tr><td>A2A / MCP</td><td>互操作协议</td><td>答非所问：MCP 管工具调用，A2A 对两人 demo 过重</td></tr>
+      </tbody>
+    </table></div>
+    <p>两步编排：<strong>Call 1</strong>（GPT-4o-mini 级快模型）输入双方画像 → 找 3 个维度共同点；<strong>Call 2</strong> 强制 <code class="mono">response_format: json_object</code> → 一次性输出 <code class="mono">dialogue_history</code>（agent 对话稿）+ <code class="mono">summary</code> + <code class="mono">hardware_feedback</code>（LED 色值、蜂鸣节奏）。剥夺 agent 的「自由意志」，换来演示的确定性。</p>
+    <p>画像构建同样做减法：<strong>不搭向量库</strong>。用户贴个人主页 URL → <strong>Jina Reader</strong>（<code class="mono">r.jina.ai/</code> 前缀）清洗成干净 Markdown → LLM 零样本抽取 <code class="mono">[职业, 兴趣, 性格, 价值观]</code> JSON → 存 Redis。几十人规模下，LLM 直接推理的语义深度（知道「儿科医生」和「资深护士」是好话题搭子）碾压余弦相似度。</p>
+
+    <h3><span class="h3n">09.5</span>Demo 防翻车 Checklist</h3>
+    <ul class="checklist">
+      <li><strong>预生成：</strong>用户扫码注册排队时，云端已开始生成两人的对话 JSON；真正碰的瞬间只是拉取缓存——任何「现场实时生成」都是高危动作</li>
+      <li><strong>三级降级：</strong>云端超时 5 秒 → 从 20 个硬编码优质结果里随机返回；硬件 3 秒无响应 → 播放本地固化的应急动画（高匹配/普通/失败三套），保证宠物「永不僵死」</li>
+      <li><strong>自带 5GHz 路由器：</strong>后台服务与手机全部走自带路由，避开会场 2.4GHz 修罗场；ESP-NOW 锁冷门信道</li>
+      <li><strong>静态 H5 兜底：</strong>后端全宕时扫码仍跳转到写好幽默话术的静态页（「AI 智能体正在咖啡休克中」）</li>
+      <li><strong>硬件后备 ×3：</strong>烧录相同固件的备机 ≥3 台，现场不修 bug 只换机</li>
+      <li><strong>缓冲动画：</strong>「神经元计算中…」转场 4–5 秒，为网络重试争取时间掩护</li>
+    </ul>
+  </div>
+</section>
+
+<section class="block" id="s10">
+  <div class="wrap">
+    <p class="sec-label">SEC 10 · Red Team</p>
+    <h2>风险红队清单</h2>
+    <p class="lede">按「概率 × 杀伤力」排序。左侧色块：■ 高危 ■ 中危 ■ 低危。</p>
+    <div class="tblwrap"><table>
+      <thead><tr><th>风险</th><th>为什么会发生</th><th>缓解</th></tr></thead>
+      <tbody>
+        <tr><td><span class="sev hi"></span>被指「友念 2.0」</td><td>同会同赛道有夺冠前作</td><td>主动对标：开场就放对比页，「它给光信号，我们给对话内容」；把群体维度做成明确差异</td></tr>
+        <tr><td><span class="sev hi"></span>现场 demo 翻车</td><td>2.4GHz 地狱 + API 限流 + LLM 抽风</td><td>SEC 09.5 全套：预生成 + 三级降级 + 自带路由 + 备机</td></tr>
+        <tr><td><span class="sev hi"></span>破冰内容尬 / 冒犯</td><td>LLM 幻觉画像 + 说破敏感共同点</td><td>白名单话题沙盒；只发「入场券」不说破细节；尴尬时宠物背锅动画</td></tr>
+        <tr><td><span class="sev md"></span>技术叙事被问穿</td><td>指引者里有懂 iOS/NFC 的人</td><td>诚实分层：「近场做发现与握手、智能在云端」；把本报告 SEC 04 的版本号背下来</td></tr>
+        <tr><td><span class="sev md"></span>隐私质疑</td><td>「你们扫我主页还互传？」</td><td>一次一授权（碰=同意）；无常开麦克风摄像头；量产路径讲 PSI + TEE；画像阅后即焚</td></tr>
+        <tr><td><span class="sev md"></span>多设备互扰</td><td>几十台同场广播冲突</td><td>ESP-NOW 重传去重 + 锁信道；匹配逻辑全在云端，近场只做在场感知</td></tr>
+        <tr><td><span class="sev lo"></span>评审随机性</td><td>摊位制 + 人流</td><td>多赛道下注（主题 + AI 硬件 + Agent + 模型厂商）；实体发光自带摊位流量</td></tr>
+        <tr><td><span class="sev lo"></span>做成产品后的留存悬崖</td><td>两周新鲜感衰减 + ¥82/月推理税</td><td>黑客松阶段不背此包袱；若继续：单机价值优先 + 订阅制 + 端侧下沉</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section class="block" id="s11">
+  <div class="wrap">
+    <p class="sec-label">SEC 11 · Product Definition</p>
+    <h2>产品定义与 Demo 剧本</h2>
+
+    <h3><span class="h3n">11.1</span>一句话定位</h3>
+    <div class="callout good">
+      <p class="co-label">Pitch · 第一句话</p>
+      <p class="serif" style="font-size:21px;line-height:1.65;font-weight:900">你和 TA 的宠物碰了一下——三秒后，它们已经替你们聊完了第一轮：屏幕上是你们真正值得开口的那句话。</p>
+      <p class="small" style="margin-bottom:0">叙事顺序：一个具体的尴尬瞬间（在 AdventureX 排队，想认识旁边的人却不知道说什么）→ 碰一碰 → 同频呼吸灯亮起 → 念出屏幕上那句破冰词。全程不出现「协议」「架构」等词，技术留给追问环节。</p>
+    </div>
+
+    <h3><span class="h3n">11.2</span>Demo 剧本（评委视角 90 秒）</h3>
+    <div class="script">
+      <div class="step"><span class="t">0:00</span><p class="d"><b>邀请：</b>「扫这个码，贴一个你的主页链接——你的 agent 十秒后就懂你。」（后台立即预生成画像）</p></div>
+      <div class="step"><span class="t">0:20</span><p class="d"><b>仪式：</b>评委的手机/借用设备与团队宠物「碰一碰」（NFC 读到对方 ID，云端拉起两个 agent 的预生成对话）</p></div>
+      <div class="step"><span class="t">0:25</span><p class="d"><b>显影：</b>两只宠物同时进入<b>同频呼吸灯</b>，轻震两下——「它们聊上了」</p></div>
+      <div class="step"><span class="t">0:35</span><p class="d"><b>内容：</b>手机 H5 弹出对话摘要：「你们都在折腾端侧模型，TA 昨天刚踩了你上周踩过的坑——问问 TA 量化用的什么方案」</p></div>
+      <div class="step"><span class="t">0:50</span><p class="d"><b>群体彩蛋：</b>大屏显示「这个房间里，你的 agent 已和 17 个 agent 握手，为你标记了 2 位最值得聊的人」＋ 方向指示</p></div>
+      <div class="step"><span class="t">1:10</span><p class="d"><b>收束：</b>「友念去年证明了『找到同类』值一个第一名；我们把它往前推了一步——让你们已经聊过了。」</p></div>
+    </div>
+
+    <h3><span class="h3n">11.3</span>赛道投递矩阵</h3>
+    <div class="tblwrap"><table>
+      <thead><tr><th>赛道类型</th><th>投递角度</th><th>需要预留的接口</th></tr></thead>
+      <tbody>
+        <tr><td>主题赛道（何以为人 / 脑洞）</td><td>社恐叙事 + 人性视角：技术替人类保面子</td><td>故事视频、对比页</td></tr>
+        <tr><td>AI 硬件类赞助赛道</td><td>实体交互设计：同步灯光、似真否认的物理化</td><td>硬件设计说明一页纸</td></tr>
+        <tr><td>Agent / 多智能体类</td><td>代理对话 + 群体拓扑（拍卖式过滤，O(log n) 叙事）</td><td>架构图 + Agent Card 概念</td></tr>
+        <tr><td>模型厂商赛道（Kimi / MiniMax / Dify 等）</td><td>把 Call 1/Call 2 换成该家模型即可参赛</td><td>模型层抽象成可切换 Provider</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+
+
+<hr class="hr">
+<footer>
+  <div class="wrap">
+    <div>碰一碰 · Agent 互递自我介绍 · 硬件宠物 —— 全景深度调研 · Rev A</div>
+    <div>2026-07-22</div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  // theme toggle
+  var btn = document.getElementById('themeToggle');
+  var root = document.documentElement;
+  btn.addEventListener('click', function(){
+    var cur = root.getAttribute('data-theme');
+    if(!cur){
+      cur = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+  });
+
+  // hero pulse canvas: two emitters, expanding rings, meeting midway
+  var cv = document.getElementById('pulse');
+  if(!cv) return;
+  var ctx = cv.getContext('2d');
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var W, H, dpr;
+
+  function copper(){
+    var isDark = root.getAttribute('data-theme') === 'dark' ||
+      (!root.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    return isDark ? [226,154,78] : [168,93,30];
+  }
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize();
+  window.addEventListener('resize', function(){ resize(); if(reduced) drawStatic(); });
+
+  var PERIOD = 2600, RINGS = 4;
+  function emitters(){
+    return [{x: W*0.30, y: H*0.46}, {x: W*0.70, y: H*0.46}];
+  }
+  function drawRing(cx, cy, r, alpha, rgb){
+    if(r <= 0 || alpha <= 0.004) return;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba('+rgb[0]+','+rgb[1]+','+rgb[2]+','+alpha.toFixed(3)+')';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  function frame(t){
+    ctx.clearRect(0,0,W,H);
+    var rgb = copper();
+    var es = emitters();
+    var maxR = Math.min(W,H) * 0.52;
+    for(var e=0; e<es.length; e++){
+      for(var i=0; i<RINGS; i++){
+        var phase = ((t + i*(PERIOD/RINGS)) % PERIOD) / PERIOD;
+        drawRing(es[e].x, es[e].y, phase*maxR, 0.16*(1-phase), rgb);
+      }
+      ctx.beginPath();
+      ctx.arc(es[e].x, es[e].y, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba('+rgb[0]+','+rgb[1]+','+rgb[2]+',0.55)';
+      ctx.fill();
+    }
+    // meeting point spark: brightens when wavefronts cross the midpoint
+    var mid = {x: W*0.5, y: H*0.46};
+    var d = Math.abs(es[0].x - mid.x);
+    var phaseMid = ((t) % PERIOD) / PERIOD;
+    var crossing = Math.abs(phaseMid*maxR - d);
+    if(crossing < 26){
+      var a = 0.5 * (1 - crossing/26);
+      ctx.beginPath();
+      ctx.arc(mid.x, mid.y, 3.6, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba('+rgb[0]+','+rgb[1]+','+rgb[2]+','+a.toFixed(3)+')';
+      ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+  function drawStatic(){
+    ctx.clearRect(0,0,W,H);
+    var rgb = copper();
+    var es = emitters();
+    var maxR = Math.min(W,H) * 0.52;
+    for(var e=0; e<es.length; e++){
+      for(var i=1; i<=RINGS; i++){
+        drawRing(es[e].x, es[e].y, maxR*i/(RINGS+1), 0.12, rgb);
+      }
+      ctx.beginPath();
+      ctx.arc(es[e].x, es[e].y, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba('+rgb[0]+','+rgb[1]+','+rgb[2]+',0.55)';
+      ctx.fill();
+    }
+  }
+  if(reduced){ drawStatic(); } else { requestAnimationFrame(frame); }
+})();
+</script>
+</body>
+</html>
