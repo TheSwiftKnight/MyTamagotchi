@@ -1257,6 +1257,10 @@ def list_worlds(session: Session = Depends(get_session)):
     slots = template.get("worlds") or []
     agents = session.exec(select(Agent).order_by(Agent.id)).all()
 
+    # 兜底行走贴图（无真实形象图时用）与地标建筑外观：按序轮换保证同屏不撞款
+    _CHAR_KINDS = ["plush", "mug", "book", "lamp", "headphones", "mic"]
+    _SKILL_BLDS = ["workshop", "library", "studio", "stage", "market", "museum"]
+
     worlds = []
     for i, a in enumerate(agents):
         owner = session.get(User, a.owner_id)
@@ -1267,7 +1271,7 @@ def list_worlds(session: Session = Depends(get_session)):
             "world_id": f"w_agent{a.id}",
             "owner": owner.username if owner else "?",
             "character": a.name,
-            "agent_kind": profile.get("role") or "伙伴",
+            "agent_kind": _CHAR_KINDS[a.id % len(_CHAR_KINDS)],
             "image": a.image,
             "region_sector": slot.get("region_sector", ""),
             "region": slot.get("region", {}),
@@ -1276,17 +1280,24 @@ def list_worlds(session: Session = Depends(get_session)):
                 "world_name": profile.get("world_name") or f"{a.name}的小世界",
                 "climate": profile.get("personality") or a.trait,
                 "temperament": profile.get("goal") or "陪着主人，做一只快乐的小伙伴",
+                # slot 是摆放位（模板每区 6 个），缺了建筑就摆不出来
                 "landmarks": [
-                    {"type": "skill", "name": s.name, "from": f"技能:{s.name}"}
-                    for s in skills
+                    {"type": _SKILL_BLDS[n % len(_SKILL_BLDS)], "name": s.name,
+                     "from": f"技能:{s.name}", "slot": n}
+                    for n, s in enumerate(skills[:6])
                 ],
             },
         })
 
     # 互访 = 二维码配对：配过的两个世界之间连一条线，游记用契合度结论。
     # 从 Bond 表读（持久化）——后端重启连线不丢，且累计所有历史配对。
+    # resonance 必须是对象（大屏画线要 score/line/led_rgb），裸 int 会让前端画线直接崩。
+    def _score_color(score: int) -> str:
+        return ("#E8634A" if score >= 90 else "#E8A25C" if score >= 75
+                else "#6B9E7A" if score >= 60 else "#4A7FA5")
+
     visits = []
-    for i, bond in enumerate(session.exec(select(Bond).order_by(Bond.created_at)).all()):
+    for bond in session.exec(select(Bond).order_by(Bond.created_at)).all():
         try:
             bond_lines = json.loads(bond.lines)
         except Exception:
@@ -1297,7 +1308,16 @@ def list_worlds(session: Session = Depends(get_session)):
             "bubbles": [{"slot": n, "text": l.get("text", "")}
                         for n, l in enumerate(bond_lines[:3])],
             "travelogue": bond.reason,
-            "resonance": bond.score,
+            "resonance": {
+                "score": bond.score,
+                "line": bond.reason,
+                "opener": bond.topic,
+                "hardware_feedback": {"led_rgb": _score_color(bond.score),
+                                      "pattern": "breath", "epoch_ms": 0},
+            },
+            # 大屏轮询靠这两个字段判断「刚发生了一次新配对」
+            "pair_count": bond.pair_count,
+            "last_pair_at": bond.last_pair_at.isoformat() if bond.last_pair_at else "",
         })
 
     return {
