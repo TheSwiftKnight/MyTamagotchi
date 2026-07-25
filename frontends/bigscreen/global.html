@@ -121,10 +121,10 @@
     document.getElementById("pair-open").addEventListener("click", function () {
       overlay.hidden = false;
       offline.hidden = true;
+      // 在线探测：跨域 iframe 加载成功会触发 load；6 秒没触发才提示离线
+      var timer = setTimeout(function () { offline.hidden = false; }, 6000);
+      frame.onload = function () { clearTimeout(timer); offline.hidden = true; };
       frame.src = PAIR_URL;
-      // 探测配对服务是否在线（iframe 加载失败没有跨域可读信号，用 fetch 探测）
-      fetch(PAIR_URL, { mode: "no-cors", signal: AbortSignal.timeout(3000) })
-        .catch(function () { offline.hidden = false; });
     });
     document.getElementById("pair-close").addEventListener("click", function () {
       overlay.hidden = true;

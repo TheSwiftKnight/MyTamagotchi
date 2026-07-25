@@ -1610,7 +1610,7 @@ function SectionLabel({ text }: { text: string }) {
 
 type ManifestInput = { key: string; label: string; type: string; required?: boolean; options?: string[]; placeholder?: string };
 
-function parseSkillManifest(raw: string): { inputs: ManifestInput[]; cta: string } {
+function parseSkillManifestRaw(raw: string): { inputs: ManifestInput[]; cta: string } {
   try {
     const parsed = raw ? JSON.parse(raw) : {};
     return {
@@ -1646,7 +1646,7 @@ function AgentProfileSheet({ agentId, onClose, onChanged }: { agentId: number; o
   }, [agentId]);
 
   const activeSkill = detail?.skills.find(skill => skill.id === activeSkillId) ?? null;
-  const manifest = activeSkill ? parseSkillManifest(activeSkill.manifest) : null;
+  const manifest = activeSkill ? parseSkillManifestRaw(activeSkill.manifest) : null;
   const color = detail ? dbAgentColor(detail) : "#7A7468";
   const digest = (() => {
     try {
@@ -5946,9 +5946,9 @@ function parseAgentProfileJson(agent: BackendAgent): AgentProfileJson {
   }
 }
 
-/** 档案卡上的角色名：profile.role 优先，没有就退回物件类型（category）。 */
+/** 档案卡上的角色名：profile.role 优先，没有就退回「伙伴」。 */
 function agentRoleLabel(agent: BackendAgent): string {
-  return parseAgentProfileJson(agent).role?.trim() || agent.category;
+  return parseAgentProfileJson(agent).role?.trim() || "伙伴";
 }
 
 /** 特质标签直接切真实的 trait 文案，不编造「专注 / 耐心 / 安全优先」这类假标签。 */

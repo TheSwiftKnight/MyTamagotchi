@@ -122,6 +122,23 @@ def silence(ms: int) -> bytes:
 # ────────────────────────── SiliconFlow STT ──────────────────────────
 def asr(pcm: bytes) -> str:
     t0 = time.time()
+    # 板载 MEMS 麦克风电平低，SenseVoice 对弱信号识别率骤降 -> 先归一化再送
+    import struct as _st
+    n = len(pcm) // 2
+    if n:
+        vals = _st.unpack(f"<{n}h", pcm[:n * 2])
+        peak = max((abs(v) for v in vals), default=0)
+        # 落盘一份原始录音供诊断（覆盖式，最近一次）
+        try:
+            with wave.open("/tmp/board_mic_last.wav", "wb") as _w:
+                _w.setnchannels(1); _w.setsampwidth(2); _w.setframerate(16000); _w.writeframes(pcm)
+        except Exception:
+            pass
+        print(f"  [mic-in] {n} 采样 峰值={peak} ({100*peak//32767}% 满幅) -> /tmp/board_mic_last.wav")
+        if 0 < peak < 12000:
+            gain = min(20000 / peak, 20.0)
+            pcm = _st.pack(f"<{n}h", *[max(-32768, min(32767, int(v * gain))) for v in vals])
+            print(f"  [mic-in] 电平偏低，放大 x{gain:.1f} 后再送 STT")
     r = requests.post(
         f"{AUDIO_BASE}/audio/transcriptions",
         headers=HDR,
@@ -242,6 +259,8 @@ def _discovery_server():
                 my_ip = probe.getsockname()[0]
             finally:
                 probe.close()
+            # 回到板子固定端口(部分嵌入式协议栈收不到临时端口的单播)，同时也回源端口双保险
+            srv.sendto(f"FORKWORLD!{my_ip}".encode(), (addr[0], 8392))
             srv.sendto(f"FORKWORLD!{my_ip}".encode(), addr)
             print(f"[discovery] {addr[0]} 求桥接地址 -> 告知 {my_ip}")
         except Exception as e:
