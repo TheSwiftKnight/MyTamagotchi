@@ -169,7 +169,7 @@ class Grabber:
 
 def run_live(args, decoder: QRDecoder, fsm: PairFSM):
     """实拍模式：采集线程 + 解码线程 + 推流主循环。"""
-    cam = Camera(index=args.index)
+    cam = Camera(index=args.index, name=args.name or CAMERA_NAME)
     print(f"[camera] 已打开「{CAMERA_NAME}」ffmpeg avfoundation index={cam.index}", flush=True)
     grab = Grabber(cam)
 
@@ -223,7 +223,7 @@ def run_live(args, decoder: QRDecoder, fsm: PairFSM):
                 grab.stop()
                 cam.release()
                 time.sleep(3)
-                cam = Camera(index=args.index)
+                cam = Camera(index=args.index, name=args.name or CAMERA_NAME)
                 grab = Grabber(cam)
                 last_seq = 0          # 新 Grabber 的 seq 从 0 计
     finally:
@@ -278,6 +278,7 @@ def main():
     ap = argparse.ArgumentParser(description="ForkWorld 二维码配对识别服务")
     ap.add_argument("--backend", default=BACKEND_URL)
     ap.add_argument("--index", type=int, default=None, help="avfoundation 设备序号（默认按名字找 Link2）")
+    ap.add_argument("--name", default=None, help="按设备名子串找相机（如 \"MacBook Pro相机\"，比 --index 抗设备序漂移）")
     ap.add_argument("--source", default=None, help="图片/视频回放（不开相机）")
     ap.add_argument("--show", action="store_true", help="弹预览窗口")
     ap.add_argument("--once", action="store_true", help="配对成功一次后退出（回放模式）")
