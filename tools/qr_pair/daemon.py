@@ -251,7 +251,8 @@ def run_playback(args, decoder: QRDecoder, fsm: PairFSM):
             while True:
                 ok, f = vid.read()
                 if not ok:
-                    return
+                    vid.set(cv2.CAP_PROP_POS_FRAMES, 0)   # 循环回放：公共演示持续出流
+                    continue
                 yield f
         frames = _vid_frames()
 
